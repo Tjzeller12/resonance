@@ -1,0 +1,58 @@
+# Lesson 1: Understanding the Rust Backend
+
+This document explains the code in [server/src/main.rs](file:///Users/thomaszeller/Desktop/resonance/server/src/main.rs) line-by-line.
+
+## 1. The Entry Point ([main](file:///Users/thomaszeller/Desktop/resonance/server/src/main.rs#10-32))
+
+```rust
+#[tokio::main]
+async fn main() { ... }
+```
+-   **`#[tokio::main]`**: Rust's standard library doesn't have a built-in "Async Runtime" (the thing that executes asynchronous code). `Tokio` is the industry standard runtime. This "macro" transforms your `async fn main` into regular code that starts the Tokio engine.
+-   **`async fn`**: Defines a function that can be paused (awaited).
+
+## 2. Dependency Injection (The Router)
+
+```rust
+let app = Router::new()
+    .route("/", get(|| async { "Resonance Server Active" }))
+    .route("/ws", get(ws_handler));
+```
+-   **`Router`** (from Axum): Matches incoming URL paths (`/` or `/ws`) to functions that handle them.
+-   **`get(...)`**: Tells the router to only match HTTP **GET** requests.
+
+## 3. The WebSocket Handshake
+
+```rust
+async fn ws_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
+    ws.on_upgrade(handle_socket)
+}
+```
+-   **`WebSocketUpgrade`**: This is a Magic Extractor. Axum looks at the HTTP request headers. If it sees `Connection: Upgrade` and `Upgrade: websocket`, it passes this object to your function.
+-   **`ws.on_upgrade(handle_socket)`**: This tells Axum: "Okay, the handshake looks good. Go ahead and upgrade this HTTP connection to a WebSocket. Once it's upgraded, run the [handle_socket](file:///Users/thomaszeller/Desktop/resonance/server/src/main.rs#38-78) function to handle the traffic."
+
+## 4. The Event Loop ([handle_socket](file:///Users/thomaszeller/Desktop/resonance/server/src/main.rs#38-78))
+
+```rust
+async fn handle_socket(mut socket: WebSocket) {
+    while let Some(msg) = socket.recv().await {
+        if let Ok(msg) = msg {
+            match msg {
+                Message::Binary(payload) => { ... }
+                Message::Text(text) => { ... }
+                ...
+            }
+        }
+    }
+}
+```
+-   **`mut socket`**: "mut" = Mutable. We need to modify the socket state to receive messages.
+-   **`socket.recv().await`**: This pauses this function until a message arrives. It does **not** block the entire CPU. Other users can be served while this waits!
+-   **`match msg`**: This is Rust's superpower. It's like a switch statement but forces you to handle every possible variant (Binary, Text, Ping, Pong, Close).
+
+## 5. The "Borrow Checker" Concept
+Notice we didn't use many complex types here. But if we wanted to share state (like a list of connected users) across threads, we would need:
+-   `Arc` (Atomic Reference Counter): To let multiple parts of the app "own" the data.
+-   `Mutex` (Mutual Exclusion): To ensure only one thread writes to the data at a time.
+
+Since this is a simple "Echo" server, we treat every connection in isolation!

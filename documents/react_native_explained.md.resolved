@@ -1,0 +1,54 @@
+# Lesson 2: React Native & Expo Crash Course
+
+Coming from the Web (HTML/CSS), React Native feels similar but has critical differences.
+
+## 1. Where is the CSS? (`StyleSheet`)
+React Native **does not use CSS files**. There is no DOM (Document Object Model), so there are no classes or selectors (`.my-class`, `div p`).
+
+Instead, we style using **JavaScript Objects**.
+```tsx
+import { StyleSheet, View } from 'react-native';
+
+// 1. Define Styles Object
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,             // "Take up all available space"
+    backgroundColor: 'red',
+    alignItems: 'center' // Flexbox is ON by default!
+  }
+});
+
+// 2. Apply it via the 'style' prop
+export default function App() {
+  return <View style={styles.container} />;
+}
+```
+
+## 2. The Core Components (No HTML)
+You cannot use `<div>`, `<span>`, or `<h1>`. We communicate directly with Native UI elements (iOS Views / Android Views).
+
+| Web HTML | React Native Component | Notes |
+| :--- | :--- | :--- |
+| `<div>` | `<View>` | The box model building block. Always `display: flex` by default. |
+| `<span>`/`<p>` | `<Text>` | **Text must go inside this.** You cannot put text directly in a View. |
+| `<button>` | `<Button>` / `<Pressable>` | `<Button>` is basic. `<Pressable>` is for custom buttons. |
+| `<input>` | `<TextInput>` | Controlled component for typing. |
+| `<img>` | `<Image>` | Requires a `source` prop (URL or local require). |
+
+## 3. Flexbox is Different
+In React Native, layout is **Flexbox only**, but with different defaults:
+-   **Flex Direction:** Default is `column` (Top to Bottom), unlike Web which is `row`.
+-   **Flex values:** `flex: 1` means "Grow to fill space".
+
+## 4. What is Expo?
+If React Native is the **Engine**, Expo is the **Car**.
+-   **React Native** lets you write JS that renders Native Views.
+-   **Expo** gives you a pre-built app shell (The "Expo Go" app) so you don't need to install Xcode or Android Studio just to test. It also provides libraries like `expo-audio-stream` and `expo-camera` that work on both phones automatically.
+
+## Your Mission: [LiveWire.tsx](file:///Users/thomaszeller/Desktop/resonance/app/components/LiveWire.tsx)
+We need to build a UI that allows us to:
+1.  Connect to WebSocket.
+2.  See the connection status ("Connected" / "Disconnected").
+3.  Click a button to "Start Stream".
+
+Use `<View>` for layout, `<Text>` for labels, and `<Button>` for actions.

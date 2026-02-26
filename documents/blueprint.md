@@ -9,21 +9,20 @@
 "Resonance" is not a single app, but a **Social Intelligence Engine**. It treats human interaction as a "sparring match" where users get high-stakes practice in a zero-consequence environment.
 
 - **Content-Agnostic:** The same engine powers "Interview Prep" and "Comedy Training" via interchangeable JSON Scenario schemas.
-- **Audio-First:** Uses 2025-era native multimodal LLMs to hear **tonality, pace, and hesitation** directly, bypassing simple text transcripts.
+- **Audio-First:** Uses **Hume AI** and **Grok** to hear **tonality, pace, and hesitation** directly, bypassing simple text transcripts.
 - **Privacy-First:** Secure, encrypted logging for sensitive habit/behavioral data.
 
 ---
 
-## 2. Technical Stack (The "Zeller" Stack)
+## 2. Technical Stack (The "Zeller" Stack v2)
 
 | Component           | Technology                              | Rationale                                                        |
 | :------------------ | :-------------------------------------- | :--------------------------------------------------------------- |
-| **Frontend**        | **React Native + TypeScript (Expo)**    | Cross-platform speed; type-safety for complex state management.  |
-| **Backend Relay**   | **Rust (Axum + Tokio)**                 | High-concurrency performance for real-time binary audio streams. |
-| **AI Intelligence** | **Gemini 2.5 Flash / Grok**             | Native multimodal support (hearing raw audio directly).          |
-| **Metric Engine**   | **Deepgram Nova-3**                     | Specialized low-latency filler word and WPM detection.           |
+| **Frontend**        | **React (Vite) + Capacitor**            | Fast development, vast ecosystem, easy mobile deployment.        |
+| **AI Engine**       | **Hume EVI 3 (React SDK)**              | "The Full Stack." Handles Ear, Brain, and Voice client-side.     |
+| **Physics Backend** | **Rust (Axum + Tokio)**                 | "The Physics Engine." Analysis (Pitch/Volume) & Game State.      |
 | **Persistence**     | **SQLite (Local) / PostgreSQL (Cloud)** | Efficient relational data for correlation analysis.              |
-| **Communication**   | **WebSockets (Binary)**                 | Sub-500ms latency required for natural "banter" flow.            |
+| **Communication**   | **WebSockets (Binary)**                 | Dual-stream architecture: Audio -> Hume (SDK) & Audio -> Rust.   |
 
 ---
 
@@ -31,212 +30,180 @@
 
 ### 🛠️ Hardware & Protocols
 
-- **Primary Device:** Samsung Galaxy Watch8 (Companion) + Android/iOS Phone.
-- **Protocol:** Bi-directional binary WebSockets for sub-500ms latency.
-- **Audio Format:** Raw 16-bit PCM, 16kHz mono (Standard for high-accuracy STT/AI ingestion).
+- **Primary Device:** Capacitor-wrapped Web App (iOS/Android).
+- **Data Strategy (The Tri-Stream):**
+  1.  **Stream A (Audio):** Hume EVI (React SDK) handles conversation loop (VAD, STT, TTS).
+  2.  **Stream B (Audio):** Custom `AudioContext` worklet streams raw PCM to Rust for "Physics" analysis.
+  3.  **Stream C (Video):** Front-facing camera captures frames for **Hume Expression Measurement** (Face).
 
-### ⚙️ Backend: The "High-Speed Relay" (Rust)
+### ⚙️ Backend: The "Physics & State Engine" (Rust)
 
 - **Framework:** `Axum` + `Tokio` runtime.
 - **Key Tasks:**
-  1.  **WebSocket Handshake:** Upgrading standard HTTP connections to persistent binary streams.
-  2.  **Multistreaming:** Utilizing `tokio::spawn` to fork the incoming audio stream:
-      - **Branch A:** Sent to Gemini for conversational intelligence.
-      - **Branch B:** Sent to Deepgram for hard metric analysis.
-  3.  **State Management:** Dynamic injection of system instructions based on the selected "Scenario JSON" (e.g., swapping from "Interview" to "Comedy" context).
+  1.  **Physics Analysis:** Ingest raw audio stream to calculate `Volume` (RMS), `Pitch` (McLeod), and `Variance`.
+  2.  **Game State:** Track session progress, scores, and historical data.
+  3.  **Auth:** Managing user sessions.
+  4.  **Post-Match Synthesis:** Aggregate [Audio Physics] + [Hume Prosody] + [Face Expressions] by timestamp.
 - **Recommended Crate Stack:**
   - `axum`: Web server and WebSocket routing.
-  - `tokio-tungstenite`: Low-level binary socket handling.
-  - `serde`: Ultra-fast JSON serialization for metrics.
-  - `gemini-live-api`: Native integration for 2025 multimodal audio.
+  - `tokio-tungstenite`: Low-level binary socket handling for physics stream.
 
-### 📱 Frontend: The "Visualizer & Interface" (TypeScript)
+### 📱 Frontend: The "Hume Client" (React + Vite)
 
-- **Framework:** React Native (Expo) + TypeScript.
-- **Audio Handling:** \* `expo-audio-stream`: Capturing raw PCM chunks.
-  - **AEC (Acoustic Echo Cancellation):** Critical implementation to prevent the AI from hearing itself through the phone’s speakers.
+- **Framework:** React + Vite + Capacitor.
+- **AI Integration:** `@humeai/voice-react` SDK + Hume Expression API.
 - **Core UI Features:**
-  - **Live Visualizer:** Using `expo-skia` for high-performance GPU-rendered frequency bars.
-  - **Scenario Battle-Map:** Selection logic for "The Hot Seat" (Interviews), "The Networking Mixer," or "The Bar."
-  - **Post-Match Heatmap:** A visual timeline showing exactly where tonality dipped or "ums/likes" spiked.
+  - **Hume Voice Provider:** Manages the conversation state.
+  - **Physics Visualizer:** Renders real-time feedback from Rust backend.
+  - **Face Tracker:** Captures local video stream for expression analysis.
 
 ### 🧠 AI Models
 
-- **Gemini 2.5 Flash Native Audio:** Handles "The Vibe." Analyzes tonality, emotional inflection, and roleplay logic.
-- **Deepgram Nova-3:** Handles "The Data." Specialized in ultra-low latency filler-word detection and WPM (Words Per Minute) calculation.
+- **Hume EVI 3 (The All-in-One):**
+    - **Ear:** VAD & Transcription.
+    - **Brain:** LLM (Configurable via Hume Portal).
+    - **Voice:** TTS (Configurable via Hume Portal).
+- **Hume Expression Measurement:**
+    - **Face:** Real-time emotion detection (Joy, Confusion, Fear, etc.).
 
 ---
 
-## 4. Dual-Mode Logic
+## 4. Multi-Modal Analysis & Reporting
 
-### 🎓 Mode A: The Academy (Learning)
+### 📊 The "Post-Match Report"
+After a session, we generate a comprehensive report by verifying alignment across three dimensions:
 
-Focused on **instruction and scaffolding**.
+| Dimension | Source | Metrics |
+| :--- | :--- | :--- |
+| **Verbal** | Hume EVI | Transcript accuracy, Filler words, WPM. |
+| **Vocal** | Rust Physics | Pitch variance, Volume stability, Pause duration. |
+| **Visual** | Hume Expression | Facial congruence (e.g., Smiling while saying "I'm sad"?). |
 
-- **Interventions:** AI "pauses" the simulation to provide real-time coaching tips.
-- **Educational Drills:** Specific mini-games (e.g., "The Eye Contact Challenge" or "The Power Pause").
-- **Concept Mastery:** Teaches the psychological "Why" behind successful social interactions.
+### 🧠 LLM Analysis
+The aggregated JSON log (timestamped) is fed into a specialized LLM prompt to generate actionable feedback:
+> "At 00:45, you said you were 'excited' but your face showed 'fear' (0.8) and your pitch dropped flatter. Work on congruent signaling."
 
-### ⚔️ Mode B: The Arena (Practice)
+### 🎓 Mode A: The Academy (Coach)
+- **Config:** Prompt Hume to act as a supportive coach.
 
-Focused on **immersion and repetition**.
-
-- **Live Sparring:** 100% voice-to-voice roleplay with zero UI interaction.
-- **Real-time Cues:** Phone haptics (vibrations) or subtle screen color shifts trigger when the user's "Confidence Score" (pitch/pacing) drops.
-- **Post-Match Review:** Detailed "Confidence Heatmaps" and specific timestamps where tonality slipped.
+### ⚔️ Mode B: The Arena (Roleplay)
+- **Config:** Prompt Hume to act as a tough adversary.
 
 ---
 
 ## 5. System Architecture
 
-1.  **Client (TS):** Captures raw 16kHz PCM audio; streams via WebSockets.
-2.  **Relay (Rust):** Multiplexes the stream to Gemini (for response) and Deepgram (for analytics).
-3.  **AI Engine:** Processes raw audio tokens; detects "smiling" and "upspeak" via tonality analysis.
-4.  **Feedback Loop:** Aggregated metrics (Filler words + Tonality + WPM) returned to Client for live UI updates.
+1.  **Client (React):**
+    *   **Hume SDK:** Connects to `wss://api.hume.ai`.
+    *   **Physics Socket:** Connects to `wss://rust-backend`.
+2.  **Hume AI:** Handles the conversation loop (User Audio -> AI Response).
+3.  **Rust Backend:** Receives copy of User Audio -> Calculates Physics -> Sends Metrics to Client.
+4.  **UI:** Displays Hume status (Speaking/Listening) + Rust Physics (Pitch/Volume/Variance).
 
 ---
 
 ## 5. Development Roadmap (The 4-Phase Sprint)
-
-### Phase 1: The "Live Wire" (Foundation)
 *Goal: Establish a stable, low-latency bi-directional audio loop.*
 
 - **Backend (Rust/Axum):**
-    - [ ] **Server Init:** Setup Axum with Tokio runtime and Trace logging.
-    - [ ] **WebSocket Hub:** Implement `/ws` route with `axum::extract::ws`.
-    - [ ] **Binary Protocol:** Define a simple binary frame structure (Header + PCM Payload) to avoid JSON overhead for audio.
-    - [ ] **Echo Logic:** Simply echo received bytes back to the sender for latency testing.
+    - [x] **Server Init:** Setup Axum with Tokio runtime and Trace logging.
+    - [x] **WebSocket Hub:** Implement `/ws` route with `axum::extract::ws`.
+    - [x] **Binary Protocol:** Define a simple binary frame structure (Header + PCM Payload) to avoid JSON overhead for audio.
+    - [x] **Echo Logic:** Simply echo received bytes back to the sender for latency testing.
 - **Frontend (Expo/RN):**
-    - [ ] **Audio Capture:** Implement `expo-audio-stream` to record 16kHz/16-bit PCM (Mono).
-    - [ ] **Socket Client:** Stream audio chunks (e.g., 4096 bytes) to the backend.
-    - [ ] **Playback:** Buffer and play received audio chunks for loopback verification.
-    - [ ] **Permissions:** Handle OS microphone permission requests.
+    - [x] **Audio Capture:** Implement `expo-audio-stream` to record 16kHz/16-bit PCM (Mono).
+    - [x] **Socket Client:** Stream audio chunks (e.g., 4096 bytes) to the backend.
+    - [x] **Playback:** Buffer and play received audio chunks for loopback verification.
+    - [x] **Permissions:** Handle OS microphone permission requests.
 
-### Phase 2: The Interpreters (Sensor Layer)
-*Goal: Ingest audio and extract meaning (Transcript + Metadata) in real-time.*
+### Phase 2: The Pivot (React + Hume SDK + Rust Physics)
+*Goal: Re-establish the MVP with the new architecture.*
 
-- **Backend:**
-    - [ ] **Deepgram Stream:** Implement WebSocket client to Deepgram Nova-3.
-        - *Output:* Real-time raw transcript + Word-level timestamps.
-    - [ ] **Gemini Sensor:** Implement client for Gemini 2.5 Live (Audio-in).
-        - *Config:* set system prompt to output *only* JSON metadata (Confidence, Emotion, Pacing).
-        - *Output:* `{ "confidence": "0.8", "emotion": "anxious" }`.
-    - [ ] **Synchronization:** Create a struct to align Deepgram transcripts with Gemini metadata windows.
-- **Frontend:**
-    - [ ] **Visualizer:** Use `expo-skia` to render frequency bars.
-    - [ ] **Debug Overlay:** Show live transcript and detected emotion labels on screen for verification.
+- **Step 0: Housekeeping (The Clean Slate)**
+    - [x] **Archive:** Move `app` -> `app-legacy`.
+    - [ ] **Scaffold:** Create `web-client` (React + Vite + TypeScript + Tailwind).
+    - [ ] **Dependencies:** Install `@humeai/voice-react` and `lucide-react`.
 
-### Phase 3: The Persona (Brain Layer)
-*Goal: Synthesize the "Sensor" data into a character response.*
+- **Step 1: Backend Refactor (The Physics Engine)**
+    - [ ] **Strip:** Remove all Gemini/LLM/ElevenLabs logic from `main.rs`.
+    - [ ] **Simplify:** `ws_handler` only accepts binary audio -> calculates metrics -> broadcasts JSON.
+    - [ ] **Verify:** Server runs with zero AI dependencies.
 
-- **Backend:**
-    - [ ] **Grok Client:** Implement integration with Grok Voice Agent API (or text completion).
-    - [ ] **Super-Prompt Construction:** Dynamically format the `[USER_TRANSCRIPT]` + `[TONALITY_DATA]` template.
-    - [ ] **Latency Optimization:** Ensure the pipeline (Deepgram+Gemini -> Grok) fits within the 500ms "Natural Banter" window.
-    - [ ] **Audio Output:** Stream Grok's generated audio response back to the client.
-- **Frontend:**
-    - [ ] **Audio Output:** Playback the response audio stream.
-    - [ ] **Interrupt Handling:** Send "Stop" signal to backend if user speaks during AI response (Barge-in).
+- **Step 2: Frontend Implementation (The Hume Client)**
+    - [ ] **Hume Voice:** Implement `VoiceProvider` (API Key from .env).
+    - [ ] **Dual-Stream:**
+        1.  **Stream A:** Hume SDK (Internal Mic Access).
+        2.  **Stream B:** `AudioContext` Worklet -> Rust WebSocket (Physics).
 
-### Phase 4: The Resonance Polish (Productization)
-*Goal: Structure, storage, and specialized modes.*
+### Phase 3: The Polish & Analysis
+*Goal: Optimization, Multimodal tracking, and Post-game reports.*
 
-- **Backend:**
-    - [ ] **Scenario Engine:** Parse JSON scenarios (e.g., "Angry Customer") and inject system prompts into Gemini.
-    - [ ] **Session DB:** Setup SQLite to save run summaries (Date, Score, Scenario).
-    - [ ] **Docker:** Create `Dockerfile` for the Rust binary for ease of deployment/sharing.
-- **Frontend:**
-    - [ ] **Scenario Selector:** List available JSON scenarios.
-    - [ ] **History View:** View past performance.
+- **Multimodal Streams:**
+    - [ ] **Face Tracker (Stream C):** Implement `Hume Expression Measurement` via webcam.
+    - [ ] **Visualizer:** Re-implement `skia` graphs using HTML5 Canvas/D3.
 
----
+- **Post-Match Report:**
+    - [ ] **Backend Aggregation:** Align [AudioMetrics] + [HumeTranscript] + [FaceExpressions] by timestamp.
+    - [ ] **LLM Analyst:** Send aggregated logs to LLM to generate "Coach Feedback" (Congruence Score).
 
-## 6. Future Expansion & Profitability
+### Phase 4: Production (Mobile & Persistence)
+*Goal: Wrap for mobile and save history.*
 
-- **Self-Hosted Models:** Transition from paid APIs to a fine-tuned **Llama 3/Mistral** (Character AI style) for max control over persona and 90% lower operating costs.
-- **Wear OS Companion:** Integrate with the **Samsung Galaxy Watch8** to track heart rate during social practice, correlating physiological stress with conversational performance.
-- **Subscription Model:** Move from "Predatory" (Vocal Image style) to a fair "Rep-Based" or "One-time Pro" model.
+- **Mobile:**
+    - [ ] **Capacitor:** Wrap `web-client` for iOS/Android.
+    - [ ] **Permissions:** Handle Mic/Camera permissions on native devices.
+
+- **Persistence:**
+    - [ ] **Session DB:** Save run summaries (Score, Date, Duration) to SQLite/Local.
+    - [ ] **History UI:** View past performance reports.
 
 ---
 
-## 7. Critical Engineering Challenges
+## 9. The React + Hume Architecture
 
-1.  **Jitter Buffering:** Implementing a buffer logic in Rust to handle packet loss or network drops, ensuring the AI's voice remains fluid.
-2.  **Token Efficiency:** Crafting modular prompts to get high-level coaching without bloating the context window or hitting rate limits.
-3.  **Privacy & Encryption:** Using local-first storage or end-to-end encryption for sensitive logs (e.g., tracking habits/social anxiety patterns).
-4.  **Hardware Optimization:** Ensuring `expo-skia` and audio streaming don't overheat the device during long 20-minute practice sessions.
+We have pivoted to a robust client-side AI architecture using the Hume SDK, while retaining the Rust backend for "Physics" and state.
 
----
-
-## 8. Modular Scenario Sample (JSON)
-
-```json
-{
-  "scenario": "Salary Negotiation",
-  "difficulty": "Advanced",
-  "ai_persona": {
-    "name": "Tough CFO",
-    "traits": ["impatient", "logical", "budget-conscious"]
-  },
-  "success_metrics": ["assertiveness", "win_win_framing", "low_filler_words"],
-  "triggers": {
-    "on_hesitation": "press_for_answer",
-    "on_upspeak": "question_authority"
-  }
-}
+```mermaid
+graph TD
+    User[User Audio] --> Client[React Client (Hume SDK)]
+    
+    %% Stream A: The AI Conversation (Handled by SDK)
+    Client -- "Audio Stream (WebRTC/WS)" --> Hume[Hume EVI 3]
+    Hume -- "Audio Response (Voice)" --> Client
+    
+    %% Stream B: The Physics Engine (Handled by Rust)
+    Client -- "Raw PCM Stream (WS)" --> Ray[Rust Backend]
+    Ray -- "Physics Metrics (Pitch/Vol)" --> UI[Visualizer]
 ```
 
-# Addendum: Hybrid "Sensor + Brain" Social Intelligence Engine
+### API Integration Strategy
 
-This addendum covers the specific "Sensor + Brain" routing logic, updated Gemini metadata schema, and Grok Voice integration details to be appended to the primary design document.
+#### A. Hume EVI 3 (The "Everything")
+*   **Role:** Handles Ear, Brain, and Mouth via the React SDK.
+*   **Input:** User Audio (managed by `useVoice` hook).
+*   **Output:** TTS Audio + Transcript Events.
+*   **Configuration:** Config ID set in Hume Portal (defines System Prompt & Voice).
 
----
+#### B. Rust Backend (The "Physics Engine")
+*   **Role:** Real-time signal processing.
+*   **Input:** Raw PCM Stream (tapped from client AudioContext).
+*   **Output:** `SensorMetrics` (Pitch, Volume, Variance).
+*   **Why?** Provides the "Resonance" feedback loop (visuals/haptics) without processing AI logic.
 
-## 9. The Hybrid "Sensor + Brain" Pipeline
+### 📝 Hume Prosody Metadata Schema (Client-Side)
 
-To bypass the "Safety Wall" of modern multimodal models while retaining high-fidelity tonality detection, the system utilizes a split-path architecture.
-
-### 🧠 Model Routing Strategy
-
-- **The Sensor (Gemini 2.5 Live API):** Configured as a "Passive Listener." It processes raw audio to output only structured metadata regarding the user's vocal delivery and emotional state.
-- **The Brain (Grok-4 / Uncensored LLM):** Acts as the "Persona." It receives the text transcript plus the Gemini Metadata to generate a socially accurate, unfiltered response.
-
-### 📝 Updated Metadata Schema (Gemini Affective Output)
-
-The Rust backend extracts the following fields from the `gemini-live-2.5-flash-native-audio` stream to build the "Super Prompt":
+The React Client receives `prosdody` events directly from the SDK:
 
 | Field              | Description                                               | Target Value for "Charisma" |
 | :----------------- | :-------------------------------------------------------- | :-------------------------- |
-| `prosody_variance` | Measures pitch modulation and rhythm patterns.            | High (Avoids monotone)      |
-| `hesitation_rate`  | Frequency of micro-pauses, stutters, and "ums".           | Low                         |
-| `affective_label`  | Classified emotion (e.g., _Anxious, Confident, Playful_). | Scenario Dependent          |
-| `upspeak_detected` | Boolean: Does the pitch rise at the end of statements?    | False                       |
+| `calm`             | Measures steadiness and relaxation.                       | High                        |
+| `anxiety`          | Frequency of micro-tremors and tension.                   | Low                         |
+| `joy`              | Positive affect and warmth.                               | Scenario Dependent          |
+| `awkwardness`      | Measures social disconnect or hesitation.                 | Low                         |
 
 ---
 
-## 10. Unfiltered Voice Integration (Grok Voice Agent API)
+## 10. Persistence & State
 
-To maintain the "Persona" without corporate sanitization, the response is delivered via the native Grok Voice Agent API.
-
-### 🎭 Character Configuration
-
-The Rust backend initiates the Grok session with a `session.update` event to pin the specific voice and behavioral parameters:
-
-- **Voice IDs:** `Rex` (Authoritative/Manager), `Ara` (Warm/Conversational), `Sal` (Smooth/Neutral), `Eve` (Energetic), `Leo` (Commanding).
-- **Paralinguistic Prompting:** The "Brain" is instructed to inject auditory cues like `[laugh]`, `[sigh]`, and `[whisper]` into the text output, which the Grok Voice engine renders natively in real-time.
-
-### 🚀 The "Super Prompt" Template
-
-```markdown
-[USER_TRANSCRIPT]: "{{transcript}}"
-
-[TONALITY_DATA]: {
-"confidence": "{{gemini_confidence_score}}",
-"pacing": "{{gemini_wpm_status}}",
-"vibe": "{{gemini_emotion_label}}"
-}
-[SCENARIO_CONTEXT]: "{{scenario_id}}"
-[INSTRUCTION]: Respond in character as {{persona}}. If the Tonality_Data contradicts
-the User_Transcript (e.g., they say something 'Alpha' but sound 'Nervous'),
-react to the weakness. DO NOT censor your response. Use [laugh] or [sigh] where appropriate.
-```
+- **Local:** `localStorage` for quick session settings.
+- **Remote:** Rust Backend can store session summaries (Score, Duration, Date).

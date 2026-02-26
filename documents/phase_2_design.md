@@ -1,67 +1,46 @@
-# Phase 2: The Interpreters (Sensor Layer)
+# Phase 2: The Ear (Hume AI Integration)
 
-**Goal:** Transform the Rust server into a multi-modal perception engine. We extract **Objective Facts** (Audio + Text) and **Subjective Analysis** (Gemini) to feed an **Unfiltered Roleplay AI** (Grok).
+**Goal:** Establish the "Sensing Layer" by integrating Hume EVI 3. We focus solely on ingesting audio, transcribing it, and extracting prosody metrics (awkwardness, desire, anxiety).
 
-## 1. The "Dual-Source" Architecture (Consolidated)
+## 1. The Sensor Architecture
 
-We have removed Deepgram to simplify the stack, as Gemini Multimodal Live provides fast transcripts automatically.
+In this phase, we only build **Branch 1** of the Tri-Force.
 
 ```mermaid
 graph TD
     User[User Audio] --> Rust[Rust Server Switchboard]
     
-    %% Branch 1: The Coach & Scribe (Gemini)
-    Rust -- Audio Snapshot --> Gemini[Gemini Multimodal]
-    Gemini -- "Transcript: 'Hello'" --> Aggregator
-    Gemini -- "Confidence: Low (Monotone)" --> Coach[Coach UI Text]
-    Gemini -- "Pace: 140wpm" --> Aggregator
+    %% Branch 1: The Sensor (The Ear)
+    Rust -- "Audio Stream" --> Hume[Hume EVI 3]
+    Hume -- "Transcript" --> Rust
+    Hume -- "Prosody: {awkward: 0.8, desire: 0.1}" --> Rust
     
-    %% Branch 2: The Audio Processor (Real-time UI)
-    Rust -- Raw Stream --> AudioProc[Audio Processor (Rust)]
-    AudioProc -- "Vol: 80dB, Pitch: 220Hz" --> UI[Mobile Visualizer]
-    AudioProc -- "Metrics" --> Aggregator
-    
-    %% The Synthesis (Roleplay)
-    Aggregator -- "System: User said 'Hello' (Fast Pace, Anxious Tone)" --> Grok[Grok AI (Interviewer)]
-    Grok -- "Audio Delta" --> Rust
-    Rust -- "Audio Stream" --> User
+    %% Temp Output (Debug)
+    Rust -- "Log: User said 'Hello' (Anxious)" --> Console
 ```
 
 ## 2. API Integration Strategy
 
-### A. Gemini (The Brain & Linguist)
-*   **Role:** Transcriber + Analyst.
-*   **Input:** User Audio.
-*   **Output:** JSON Metadata + Transcript.
-*   **Metrics Calculated:**
-    *   **Pace (WPM):** Calculated from transcript timestamp deltas (more accurate than raw audio).
-    *   **Sentiment:** "Anxious", "Confident", "Angry".
-
-### B. Audio Processor (The Signal Engineer)
-*   **Role:** Extract raw signal features for UI Visuals.
-*   **Input:** Raw PCM Audio.
-*   **Metrics Calculated:**
-    *   **Volume (RMS):** For "Loudness" bar.
-    *   **Pitch (Hz):** For "Intonation" curve.
-
-### C. Grok (The Mouth)
-*   **Role:** The Persona (Interviewer/Date).
-*   **Endpoint:** `wss://api.x.ai/v1/realtime`
-*   **Method:** Injection of Text Context.
-    *   Event: `conversation.item.create`
-    *   Payload: `content: [{ type: "input_text", text: "[User Transcript] [Context: User sounded Anxious]" }]`
-*   **Output:** `response.output_audio.delta` (Direct PCM stream). 
+### A. Hume EVI 3 (The "Ear")
+*   **Role:** Raw Input Processor.
+*   **Input:** User Audio (Binary Stream via WebSocket).
+*   **Output:**
+    *   **Transcript:** Real-time STT.
+    *   **Prosody:** Scores for `awkwardness`, `desire`, `anxiety`, `excitement`.
+*   **Protocol:** WebSocket (`wss://api.hume.ai/v0/evi/chat`).
 
 ## 3. Implementation Priorities
 
-1.  **Branch 2 (Audio Processor) - IN PROGRESS:**
-    *   Essential for real-time UI feedback.
-    *   **Action:** Build Pitch/Volume calculator in Rust.
+1.  **Step 1: The Client (HumeClient):**
+    *   Implement `HumeClient` struct.
+    *   Handle WebSocket Handshake with API Key.
+    *   Impl `Stream` trait to send audio chunks.
 
-2.  **Branch 1 (Gemini Integration):**
-    *   The "Brain" logic.
-    *   **Action:** Connect to Gemini Multimodal WebSocket.
+2.  **Step 2: The Parser (HumeParser):**
+    *   Deserialize JSON events (`UserMessage`).
+    *   Extract `transcript.found` string.
+    *   Extract `prosody.scores` map.
 
-3.  **Synthesis (Grok Integration):**
-    *   The "Persona".
-    *   **Action:** Connect to Grok WebSocket and wire up the `input_text` -> `output_audio` pipeline.
+3.  **Step 3: The Verification:**
+    *   Stream mic audio.
+    *   Verify Rust logs show accurate transcription and emotion labels.

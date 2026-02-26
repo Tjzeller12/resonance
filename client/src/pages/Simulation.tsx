@@ -5,9 +5,17 @@ import { useSimulationSession } from '../hooks/useSimulationSession';
 
 
 
+/**
+ * The main Simulation view where coaching sessions actually occur.
+ * 
+ * This page brings together all the complex underlying state — WebSockets,
+ * AudioWorklets, and Rust API events — and passes them down to simple,
+ * dumb presentation components (SensorMetricsPanel, SimControlPanel).
+ */
 const Simulation = () => {
     const { sensorMetrics, sessionStatus, isConnected, pitchHistory, startSession, endSession } = useSimulationSession();
 
+    // The stream is considered completely active only while the session dictates it
     const isStreaming = sessionStatus === 'active';
 
     return (

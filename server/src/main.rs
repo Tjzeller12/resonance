@@ -39,13 +39,16 @@ async fn ws_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(handle_socket)
 }
 
+/// Envelope format for all data sent over the WebSocket to the frontend.
+/// Uses `tag = "type", content = "data"` to generate clean `{ "type": "...", "data": ... }` JSON.
 #[derive(Serialize)]
 #[serde(tag = "type", content = "data")]
 enum ServerMessage {
     AudioMetrics(sensors::SensorMetrics),
 }
 
-/// Handles the actual WebSocket stream
+/// Handles the actual WebSocket stream connection for a single client.
+/// Sits in an infinite loop waiting for binary audio chunks from the frontend.
 async fn handle_socket(mut socket: WebSocket) {
     info!("New WebSocket connection established");
 

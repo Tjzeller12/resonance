@@ -8,9 +8,16 @@ interface SensorMetricsPanelProps {
     pitchHistory: number[];
 }
 
+/**
+ * A presentation component that visually bundles all live sensor data.
+ * 
+ * Takes the raw metrics passed down from the session hook and distributes
+ * them to the appropriate visualizations (Meters, Graphs, and Text).
+ */
 export default function SensorMetricsPanel({ metrics, pitchHistory }: SensorMetricsPanelProps) {
     if (!metrics) return null;
 
+    // Simple visual cue: Green for high dynamic range (good), yellow/red for monotone.
     const color = metrics.pitch_variance > 80 ? '#22c55e' : metrics.pitch_variance > 40 ? '#eab308' : '#ef4444';
     
     return (

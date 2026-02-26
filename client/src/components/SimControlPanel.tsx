@@ -5,6 +5,12 @@ interface SimControlsProps {
     onEnd: () => void;
 }
 
+/**
+ * The primary user interaction point for the simulation.
+ * 
+ * Handles the Start/Stop toggle button and visually indicates whether
+ * the WebSocket connection to the Rust backend is currently healthy.
+ */
 export default function SimControlPanel({ isConnected, isStreaming, onStart, onEnd}: SimControlsProps) {
     return(
         <div className="flex flex-col items-center gap-4">

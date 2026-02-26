@@ -4,6 +4,8 @@ use pitch_detection::detector::PitchDetector;
 use std::time::{Duration, Instant};
 use serde::Serialize;
 
+/// Standardized metrics emitted by the `AudioProcessor`.
+/// Passed directly via WebSocket to the frontend for visualization.
 #[derive(Serialize)]
 pub struct SensorMetrics {
     pub volume: f32,
@@ -12,6 +14,8 @@ pub struct SensorMetrics {
     pub is_speaking: bool,
 }
 
+/// Maintains state over time to calculate rolling metrics (like variance) 
+/// and debounced states (like continuous speaking).
 pub struct AudioProcessor {
     last_spoken: Option<Instant>,
     pitch_history: Vec<f32>,
@@ -25,6 +29,9 @@ impl AudioProcessor {
         }
     }
 
+    /// Main entry point for the sensor loop. 
+    /// Takes a chunk of raw 16-bit PCM audio from the frontend, runs all
+    /// mathematical analyses, updates historical state, and returns the live metrics.
     pub fn process(&mut self, pcm: &[i16]) -> SensorMetrics {
         let volume = self.calculate_volume(pcm);
 
@@ -68,6 +75,8 @@ impl AudioProcessor {
         variance.sqrt()
     }
 
+    /// Calculates root-mean-square (RMS) energy to determine physical loudness.
+    /// Returns a normalized value between 0.0 (silent) and 1.0 (clipping).
     fn calculate_volume(&self, pcm: &[i16]) -> f32 {
         let mut sum_squares = 0.0;
         for &sample in pcm {
@@ -79,6 +88,8 @@ impl AudioProcessor {
         return ((db + 40.0) / 40.0).max(0.0).min(1.0);
     }
 
+    /// Uses the McLeod Pitch Method (via `pitch_detection` crate) to isolate human voice
+    /// frequencies from background noise. Returns 0.0 if no clear pitch is detected.
     fn calculate_pitch(&self, pcm: &[i16]) -> f32 {
         const SAMPLE_RATE: usize = 16000;
         const SIZE: usize = 2048;

@@ -4,7 +4,13 @@ interface MeterProps {
     max: number;
 }
 
+/**
+ * A horizontal volume/intensity meter that fills a progress bar left-to-right.
+ * Used for live visual feedback of instantaneous sensor values like audio volume.
+ */
 export const MetricMeter = ({value, min, max}: MeterProps) => {
+    // Normalizes the raw value to a 0-100 percentage.
+    // Math.clamp equivalent is used to guarantee the bar never overfills or underfills bounds.
     const percent = Math.min(100, Math.max(0, ((value - min) / (max - min)) * 100));
 
     const color = percent > 80 ? '#eab308'

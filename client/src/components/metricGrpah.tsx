@@ -8,12 +8,21 @@ interface MetricGraphProps {
     referenceLine?: number;
 }
 
+/**
+ * Renders a real-time tracking line graph using pure SVG polylines.
+ * This is highly optimized for performance, skipping heavy charting libraries like Recharts
+ * by manually projecting simple 1D arrays into 2D SVG space.
+ */
 export const MetricGraph = ({data, label, unit = '', color = '#3b82f6', min = 0, max = 400,
     referenceLine
 }: MetricGraphProps) => { 
+    // Fixed internal coordinate system bounds — the actual viewing size will scale 
+    // responsively via the svg `viewBox` property.
     const WIDTH = 300;
     const HEIGHT = 80;
 
+    // Converts raw data values (e.g. pitch in Hz) into X/Y coordinates on the SVG plane.
+    // X advances uniformly left-to-right. Y is inverted (SVG 0 is top) and scaled between min/max.
     const points = data.map((val, i) => {
         const x = (i / (data.length - 1)) * WIDTH;
         const y = HEIGHT - ((val - min) / (max - min)) * HEIGHT;

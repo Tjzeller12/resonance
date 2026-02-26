@@ -28,7 +28,7 @@ impl AudioProcessor {
     pub fn process(&mut self, pcm: &[i16]) -> SensorMetrics {
         let volume = self.calculate_volume(pcm);
 
-        if volume > 0.06 { 
+        if volume > 0.3 { 
             self.last_spoken = Some(Instant::now());
         }
         
@@ -75,7 +75,8 @@ impl AudioProcessor {
             sum_squares += normalized * normalized; 
         }
         let rms = (sum_squares / pcm.len() as f32).sqrt();
-        return (rms * 5.0).min(1.0);
+        let db = 20.0 * rms.max(0.000001).log10();
+        return ((db + 40.0) / 40.0).max(0.0).min(1.0);
     }
 
     fn calculate_pitch(&self, pcm: &[i16]) -> f32 {
@@ -89,7 +90,10 @@ impl AudioProcessor {
         let mut detector = McLeodDetector::new(SIZE, PADDING);
         
         if let Some(pitch) = detector.get_pitch(&samples, SAMPLE_RATE, POWER_THRESHOLD, CLARITY_THRESHOLD) {
-            return pitch.frequency as f32;
+            let freq = pitch.frequency as f32;
+            if freq >= 85.0 && freq <= 350.0 {
+                return freq;
+            }
         }
         return 0.0;
     }

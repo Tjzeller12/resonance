@@ -1,5 +1,4 @@
 import { type SensorMetrics } from '../hooks/useSensorMetrics';
-import Card from './common/Card';
 import { MetricGraph } from './metricGrpah';
 import { MetricMeter } from './metricMeter';
 
@@ -21,17 +20,15 @@ export default function SensorMetricsPanel({ metrics, pitchHistory }: SensorMetr
     const color = metrics.pitch_variance > 80 ? '#22c55e' : metrics.pitch_variance > 40 ? '#eab308' : '#ef4444';
     
     return (
-        <Card variant='glass'>
-            <div className="flex flex-col gap-3 mt-6 w-full">
-                <MetricMeter value={metrics.volume} min={0} max={1} />
-                <MetricGraph data={pitchHistory} label="Pitch" unit="Hz" min={80} max={400} color={color}/>
-                <div className="bg-neutral-900 p-4 rounded-xl border border-neutral-700/50 col-span-2">
-                    <div className="text-neutral-400 text-xs mb-1">Status</div>
-                    <div className={`text-xl font-bold ${metrics.is_speaking ? 'text-green-400' : 'text-neutral-500'}`}>
-                        {metrics.is_speaking ? 'Speaking...' : 'Listening...'}
-                    </div>
-                </div>
+        <div className="bg-black/60 backdrop-blur-md p-4 rounded-xl border border-white/10 text-white shadow-xl flex flex-col gap-3 w-full backdrop-saturate-150">
+            <MetricMeter value={metrics.volume} min={0} max={1} />
+            <MetricGraph data={pitchHistory} label="Pitch" unit="Hz" min={80} max={400} color={color}/>
+            <div className="bg-black/40 p-2.5 rounded-lg border border-white/5 flex justify-between items-center">
+                <span className="text-neutral-400 text-xs font-semibold uppercase tracking-wider">Status</span>
+                <span className={`text-sm font-bold tracking-wide ${metrics.is_speaking ? 'text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.8)]' : 'text-neutral-500'}`}>
+                    {metrics.is_speaking ? 'Speaking...' : 'Listening...'}
+                </span>
             </div>
-        </Card>
+        </div>
     )
 }

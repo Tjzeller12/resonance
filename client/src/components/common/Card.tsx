@@ -6,11 +6,12 @@ interface CardProps {
     children: ReactNode;
     variant?: 'default' | 'glass';
 
+    noPadding?: boolean;
 }
 
 const Card = (props: CardProps) => {
     return (
-        <div className={`rounded-2xl p-6 shadow-lg transition-all duration-300
+        <div className={`rounded-2xl ${props.noPadding ? '' : 'p-6'} shadow-lg transition-all duration-300
         ${props.variant === 'glass' 
             ? 'bg-white/5 backdrop-blur-lg border border-white/10' 
             : 'bg-neutral-800 border border-neutral-700'} ${props.className}`}>

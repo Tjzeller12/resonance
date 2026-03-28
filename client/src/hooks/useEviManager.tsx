@@ -3,9 +3,21 @@ import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 const SIM_CONFIGS: Record<string, { image: string; configId?: string }> = {
-    dojo: {
+    downward_inflection_technique_training: {
         image: '/resources/sim_env_imgs/dojo.png',
         configId: "b055deb3-a413-4543-83d7-09f30c71b2a6", 
+    },
+    pitch_variance_training: {
+        image: '/resources/sim_env_imgs/dojo.png',
+        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
+    },
+    pace_and_volume_variance_training: {
+        image: '/resources/sim_env_imgs/dojo.png',
+        configId: "940686cb-95e5-4ff7-b384-128b2e330269", 
+    },
+    speaking_intelligence_training: {
+        image: '/resources/sim_env_imgs/dojo.png',
+        configId: "6f47b2e8-c530-4510-a756-1d7b6a47ec1f", 
     },
     star_interview_training: {
         image: '/resources/sim_env_imgs/interview_training.png',
@@ -38,14 +50,14 @@ const SIM_CONFIGS: Record<string, { image: string; configId?: string }> = {
 };
 
 export const useEviManager = () => {
-    const { connect, disconnect, status, messages, isMuted, mute, unmute, pauseAssistant, resumeAssistant } = useVoice();
+    const { connect, disconnect, status, messages, isMuted, mute, unmute, pauseAssistant, resumeAssistant, isPlaying, isPaused } = useVoice();
     const [searchParams] = useSearchParams();
-    const scenarioId = searchParams.get('scenarioId') || 'dojo';
+    const scenarioId = searchParams.get('scenarioId') || 'downward_inflection_technique_training';
     
     // Use type assertion safely, ensuring keyof typeof SIM_CONFIGS
     const activeConfig: { image: string , configId?: string } = (scenarioId in SIM_CONFIGS) 
         ? SIM_CONFIGS[scenarioId] 
-        : SIM_CONFIGS.dojo;
+        : SIM_CONFIGS.downward_inflection_technique_training;
 
     const startEviSession = useCallback(async () => {
         try {
@@ -77,6 +89,8 @@ export const useEviManager = () => {
         unmute,
         pauseAssistant,
         resumeAssistant,
-        activeConfig
+        activeConfig,
+        isPlaying,
+        isPaused
     };
 };

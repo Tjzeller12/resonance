@@ -30,8 +30,23 @@ const CATEGORIES: Category[] = [
     border: "border-blue-500/30",
     trainingOptions: [
       {
-        id: "dojo",
-        label: "Downward Inflection & Pausing Power",
+        id: "downward_inflection_technique_training",
+        label: "Downward Inflection & Pausing",
+        image: "/resources/sim_env_imgs/dojo.png",
+      },
+      {
+        id: "pitch_variance_training",
+        label: "Pitch Variance Training",
+        image: "/resources/sim_env_imgs/dojo.png",
+      },
+      {
+        id: "pace_and_volume_variance_training",
+        label: "Pace & Volume Variance Training",
+        image: "/resources/sim_env_imgs/dojo.png",
+      },
+      {
+        id: "speaking_intelligence_training",
+        label: "Sounding Intelligent",
         image: "/resources/sim_env_imgs/dojo.png",
       },
     ],

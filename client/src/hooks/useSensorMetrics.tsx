@@ -68,7 +68,6 @@ export const useSensorMetrics = () => {
             workletNode.current.port.onmessage = (event: MessageEvent<Float32Array>) => {
                 if (ws.current?.readyState === WebSocket.OPEN) {
                     const float32Data: Float32Array = event.data;
-                    console.log("Sending audio", float32Data);
                     // Convert Float32 [-1.0, 1.0] → Int16 [-32768, 32767]
                     // Int16 PCM is the standard format the Rust sensor expects
                     const int16Data = new Int16Array(float32Data.length);
@@ -124,10 +123,8 @@ export const useSensorMetrics = () => {
         if (typeof data === 'string') {
             try {
                 const msg = JSON.parse(data) as ServerMessage;
-                console.log('Recieved Message: ', msg);
                 if (msg.type === 'AudioMetrics') {
                     const metrics = (msg as AudioMetricsMessage).data;
-                    console.log('Recieved AudioMetrics: ', metrics);
                     setSensorMetrics(metrics);
                     if (metrics.pitch > 80) {
                         smoothedPitch.current = (EMA_ALPHA * metrics.pitch) + ((1 - EMA_ALPHA) * smoothedPitch.current);

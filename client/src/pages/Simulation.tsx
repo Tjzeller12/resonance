@@ -1,6 +1,5 @@
 import { VoiceProvider } from '@humeai/voice-react';
-import { useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
 import Card from '../components/common/Card';
 import EviConvoPanel from '../components/eviConvoPanel';
 import SensorMetricsPanel from '../components/SensorMetricsPanel';
@@ -13,38 +12,71 @@ const SimulationInner = () => {
     const { sensorMetrics, sessionStatus, isConnected, pitchHistory, startSession, endSession } = useSimulationSession();
     
     // 2. Hume EVI Session
-    const { startEviSession, stopEviSession, messages, activeConfig, status, pauseAssistant, resumeAssistant } = useEviManager();
-
-    const [searchParams] = useSearchParams();
-    const scenarioId = searchParams.get('scenarioId') || 'dojo';
-
+    const { startEviSession, stopEviSession, messages, activeConfig, status } = useEviManager();
     const isStreaming = sessionStatus === 'active' || status.value === 'connected';
+    // 3. Responsive WPM Velocity (Exponential Moving Average)
+    const [wpm, setWpm] = useState<number>(0);
+    const lastWordCount = useRef<number>(0);
+    const lastWordTimestamp = useRef<number>(0);
 
-    // 3. Custom "Power Pause" VAD Orchestrator
-    const pauseTimeoutRef = useRef<number | null>(null);
+    // Derived WPM for display (resets to 0 in UI when not streaming)
+    // This avoids the cascading render lint by not calling setState purely for resets.
+    const displayWpm = isStreaming ? wpm : 0;
 
+    // Calculate a truly responsive WPM based on the delta between Hume transcript updates.
+    // Uses an EMA (Exponential Moving Average) to smooth out "bursty" network packets.
     useEffect(() => {
-        // Only enforce the 3-second power pause constraint for the Dojo scenario
-        if (scenarioId !== 'dojo' || status.value !== 'connected') return;
+        if (!isStreaming) {
+            lastWordCount.current = 0;
+            lastWordTimestamp.current = 0;
+            return;
+        }
 
-        if (sensorMetrics?.is_speaking) {
-            // User is actively speaking: lock down the assistant to prevent early interruptions
-            if (pauseTimeoutRef.current) {
-                window.clearTimeout(pauseTimeoutRef.current);
-                pauseTimeoutRef.current = null;
+        // Diagnostic log: ensure the effect is firing and we see the Hume status
+        console.log(`[WPM Status] evi: ${status.value}, words_history: ${messages.length}`);
+
+        const currentTotalWords = messages.reduce((acc, msg) => {
+            if (msg.type === 'user_message') {
+                let text = '';
+                if ('message' in msg && msg.message?.content) text = msg.message.content;
+                else {
+                    const m = msg as unknown as Record<string, unknown>;
+                    if (typeof m.transcript === 'string') text = m.transcript;
+                    else if (typeof m.text === 'string') text = m.text;
+                }
+                return acc + (text.trim() ? text.trim().split(/\s+/).filter(w => w.length > 0).length : 0);
             }
-            pauseAssistant();
-        } else {
-            // User stopped speaking: set a rigid 3000ms delay before releasing the assistant's speech
-            pauseTimeoutRef.current = window.setTimeout(() => {
-                resumeAssistant();
-            }, 3000);
-        }
+            return acc;
+        }, 0);
 
-        return () => {
-            if (pauseTimeoutRef.current) window.clearTimeout(pauseTimeoutRef.current);
+        const now = Date.now();
+        const deltaWords = currentTotalWords - lastWordCount.current;
+        const deltaTimeMs = now - lastWordTimestamp.current;
+
+        // If new words arrived and it's been at least 400ms since the last update
+        if (deltaWords > 0 && lastWordTimestamp.current > 0) {
+            if (deltaTimeMs > 400) { 
+                const instantWpm = (deltaWords / (deltaTimeMs / 60000));
+                const cappedInstant = Math.min(instantWpm, 350); // Cap outliers
+                
+                setWpm(prev => {
+                    const alpha = 0.4; // 40% weight to new data for high responsiveness
+                    const smooth = (cappedInstant * alpha) + (prev * (1 - alpha));
+                    return Math.round(smooth);
+                });
+                
+                console.log(`[WPM Speedometer] +${deltaWords} words in ${deltaTimeMs}ms -> Pace: ${Math.round(instantWpm)}`);
+                lastWordCount.current = currentTotalWords;
+                lastWordTimestamp.current = now;
+            }
+        } else if (lastWordTimestamp.current === 0 && deltaWords > 0) {
+            lastWordCount.current = currentTotalWords;
+            lastWordTimestamp.current = now;
+            setWpm(0); // Reset EMA base for the new session
+        } else if (currentTotalWords < lastWordCount.current) {
+            lastWordCount.current = currentTotalWords;
         }
-    }, [sensorMetrics?.is_speaking, scenarioId, status.value, pauseAssistant, resumeAssistant]);
+    }, [messages, isStreaming, status.value]);
 
     const handleStart = () => {
         void startSession();
@@ -66,7 +98,7 @@ const SimulationInner = () => {
                     
                     {/* HUD: Telemetry (Top Right Overlay) */}
                     <div className="absolute top-4 right-4 w-64 z-20 pointer-events-none">
-                        <SensorMetricsPanel metrics={sensorMetrics} pitchHistory={pitchHistory} />
+                        <SensorMetricsPanel metrics={sensorMetrics} pitchHistory={pitchHistory} wpm={displayWpm} />
                     </div>
                 </div>
 

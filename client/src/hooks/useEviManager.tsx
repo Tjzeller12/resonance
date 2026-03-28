@@ -50,30 +50,94 @@ const SIM_CONFIGS: Record<string, { image: string; configId?: string }> = {
 };
 
 export const useEviManager = () => {
-    const { connect, disconnect, status, messages, isMuted, mute, unmute, pauseAssistant, resumeAssistant, isPlaying, isPaused } = useVoice();
+    const { connect, disconnect, status, messages, isMuted, mute, unmute, pauseAssistant, resumeAssistant, isPlaying, isPaused, sendSessionSettings } = useVoice();
     const [searchParams] = useSearchParams();
     const scenarioId = searchParams.get('scenarioId') || 'downward_inflection_technique_training';
     
-    // Use type assertion safely, ensuring keyof typeof SIM_CONFIGS
     const activeConfig: { image: string , configId?: string } = (scenarioId in SIM_CONFIGS) 
         ? SIM_CONFIGS[scenarioId] 
         : SIM_CONFIGS.downward_inflection_technique_training;
 
+    // Read injected context from sessionStorage (set by ContextInjectionPanel)
+    const contextRaw = typeof window !== 'undefined' 
+        ? sessionStorage.getItem(`context_${scenarioId}`) 
+        : null;
+    const contextData: Record<string, string> | null = contextRaw 
+        ? (JSON.parse(contextRaw) as Record<string, string>) 
+        : null;
+
+    // Build a natural-language context string
+    const buildContextString = (context: Record<string, string>): string => {
+        const parts: string[] = [];
+        if (context.self_description?.trim()) {
+            parts.push(`The user's physical appearance: ${context.self_description.trim()}`);
+        }
+        if (context.date_persona?.trim()) {
+            parts.push(`The person they are interacting with looks like: ${context.date_persona.trim()}`);
+        }
+        const handled = new Set(['self_description', 'date_persona']);
+        for (const [key, value] of Object.entries(context)) {
+            if (!handled.has(key) && value.trim()) {
+                parts.push(`${key.replace(/_/g, ' ')}: ${value.trim()}`);
+            }
+        }
+        return parts.length > 0
+            ? `Use the following appearance details about the participants. ${parts.join('. ')}.`
+            : '';
+    };
+
     const startEviSession = useCallback(async () => {
         try {
-            const apiKey = import.meta.env.VITE_HUME_API_KEY;
-                
+            const apiKey = String(import.meta.env.VITE_HUME_API_KEY ?? '');
+            const contextText = contextData ? buildContextString(contextData) : null;
+
+            console.log('[EVI] Starting session...', {
+                scenarioId,
+                configId: activeConfig.configId,
+                hasContext: !!contextText,
+                contextText,
+            });
+
+            // 1. Connect with context in session settings
             await connect({
                 auth: { type: 'apiKey', value: apiKey },
                 ...(activeConfig.configId ? { configId: activeConfig.configId } : {}),
-                sessionSettings: {
-                    type: 'session_settings',
-                }
+                ...(contextText ? {
+                    sessionSettings: {
+                        type: 'session_settings' as const,
+                        context: {
+                            text: contextText,
+                            type: 'persistent' as const,
+                        },
+                    },
+                } : {}),
             });
+
+            console.log('[EVI] Connected.');
+
+            if (contextText) {
+                // Send context via sendSessionSettings after connect
+                // This sends a WebSocket message that Hume appends to user messages
+                try {
+                    sendSessionSettings({
+                        context: {
+                            text: contextText,
+                            type: 'persistent',
+                        },
+                    });
+                    console.log('[EVI] ✅ sendSessionSettings sent');
+                    // Store on window for console debugging: type window.__eviContext in console
+                    (window as unknown as Record<string, unknown>).__eviContext = contextText;
+                } catch (e) {
+                    console.warn('[EVI] ⚠️ sendSessionSettings failed:', e);
+                }
+
+                sessionStorage.removeItem(`context_${scenarioId}`);
+            }
         } catch (err) {
             console.error('Failed to connect to Hume EVI', err);
         }
-    }, [connect, activeConfig.configId]);
+    }, [connect, activeConfig.configId, contextData, scenarioId, sendSessionSettings]);
 
     const stopEviSession = useCallback(() => {
         void disconnect();
@@ -91,6 +155,7 @@ export const useEviManager = () => {
         resumeAssistant,
         activeConfig,
         isPlaying,
-        isPaused
+        isPaused,
+        sendSessionSettings,
     };
 };

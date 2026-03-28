@@ -16,7 +16,7 @@ const SimulationInner = () => {
     const { startEviSession, stopEviSession, messages, activeConfig, status, pauseAssistant, resumeAssistant } = useEviManager();
 
     const [searchParams] = useSearchParams();
-    const simParam = searchParams.get('sim') || 'dojo';
+    const scenarioId = searchParams.get('scenarioId') || 'dojo';
 
     const isStreaming = sessionStatus === 'active' || status.value === 'connected';
 
@@ -25,7 +25,7 @@ const SimulationInner = () => {
 
     useEffect(() => {
         // Only enforce the 3-second power pause constraint for the Dojo scenario
-        if (simParam !== 'dojo' || status.value !== 'connected') return;
+        if (scenarioId !== 'dojo' || status.value !== 'connected') return;
 
         if (sensorMetrics?.is_speaking) {
             // User is actively speaking: lock down the assistant to prevent early interruptions
@@ -44,7 +44,7 @@ const SimulationInner = () => {
         return () => {
             if (pauseTimeoutRef.current) window.clearTimeout(pauseTimeoutRef.current);
         }
-    }, [sensorMetrics?.is_speaking, simParam, status.value, pauseAssistant, resumeAssistant]);
+    }, [sensorMetrics?.is_speaking, scenarioId, status.value, pauseAssistant, resumeAssistant]);
 
     const handleStart = () => {
         void startSession();

@@ -1,11 +1,22 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Card from "../components/common/Card";
+import ContextInjectionPanel from "../components/ContextInjectionPanel";
+import type { ContextField } from "../components/ContextInjectionPanel";
+
+interface ContextConfig {
+  title: string;
+  subtitle?: string;
+  fields: ContextField[];
+  quickChips?: string[];
+  chipTargetField?: string;
+}
 
 interface ScenarioItem {
   id: string;
   label: string;
   image: string;
+  contextConfig?: ContextConfig;
 }
 
 interface Category {
@@ -18,6 +29,32 @@ interface Category {
   trainingOptions: ScenarioItem[];
   practiceOptions: ScenarioItem[];
 }
+
+const DATING_CONTEXT_CONFIG: ContextConfig = {
+  title: "Set the Scene",
+  subtitle: "Describe what each person looks like. Personality is unknown — that's the challenge.",
+  fields: [
+    {
+      key: "self_description",
+      label: "Your Appearance",
+      placeholder: "e.g. Tall, athletic build, short dark hair, wearing a fitted henley and jeans...",
+      maxLength: 250,
+    },
+    {
+      key: "date_persona",
+      label: "Their Appearance",
+      placeholder: "e.g. Petite, curly auburn hair, light freckles, wearing a sundress with white sneakers...",
+      maxLength: 250,
+    },
+  ],
+  quickChips: [
+    "Tall", "Short", "Athletic", "Slim", "Curvy",
+    "Dark Hair", "Blonde", "Redhead", "Curly Hair",
+    "Glasses", "Freckles", "Dimples", "Sharp Jawline",
+    "Casual Attire", "Dressed Up", "Modest", "Streetwear",
+  ],
+  chipTargetField: "date_persona",
+};
 
 const CATEGORIES: Category[] = [
   {
@@ -99,16 +136,19 @@ const CATEGORIES: Category[] = [
         id: "bar_pickup",
         label: "Pickup at the bar",
         image: "/resources/sim_env_imgs/pickup_at_bar.png",
+        contextConfig: DATING_CONTEXT_CONFIG,
       },
       {
         id: "high_end_dinner_date",
         label: "High-end dinner date",
         image: "/resources/sim_env_imgs/high_end_dinner_date.png",
+        contextConfig: DATING_CONTEXT_CONFIG,
       },
       {
         id: "park_date",
         label: "Park date",
         image: "/resources/sim_env_imgs/park_date.png",
+        contextConfig: DATING_CONTEXT_CONFIG,
       },
     ],
   },
@@ -119,6 +159,10 @@ export default function Home() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
     null,
   );
+  const [pendingContextScenario, setPendingContextScenario] = useState<{
+    scenario: ScenarioItem;
+    mode: "training" | "practice";
+  } | null>(null);
 
   const handleSelectCategory = (categoryId: string) => {
     setSelectedCategoryId(categoryId);
@@ -129,10 +173,26 @@ export default function Home() {
   };
 
   const handleLaunchSim = (
-    scenarioId: string,
+    scenario: ScenarioItem,
     mode: "training" | "practice",
   ) => {
-    void navigate(`/simulation?scenarioId=${scenarioId}&mode=${mode}`);
+    if (scenario.contextConfig) {
+      setPendingContextScenario({ scenario, mode });
+    } else {
+      void navigate(`/simulation?scenarioId=${scenario.id}&mode=${mode}`);
+    }
+  };
+
+  const handleContextLaunch = (context: Record<string, string>) => {
+    if (!pendingContextScenario) return;
+    sessionStorage.setItem(
+      `context_${pendingContextScenario.scenario.id}`,
+      JSON.stringify(context),
+    );
+    void navigate(
+      `/simulation?scenarioId=${pendingContextScenario.scenario.id}&mode=${pendingContextScenario.mode}`,
+    );
+    setPendingContextScenario(null);
   };
 
   const selectedCategory = CATEGORIES.find((c) => c.id === selectedCategoryId);
@@ -261,7 +321,7 @@ export default function Home() {
                 {selectedCategory.trainingOptions.map((option) => (
                   <div
                     key={option.id}
-                    onClick={() => handleLaunchSim(option.id, "training")}
+                    onClick={() => handleLaunchSim(option, "training")}
                     className="group relative overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800 hover:border-blue-500/50 transition-colors cursor-pointer flex items-center p-3 gap-4"
                   >
                     <div className="w-20 h-20 rounded-lg overflow-hidden shrink-0">
@@ -338,7 +398,7 @@ export default function Home() {
                 {selectedCategory.practiceOptions.map((option) => (
                   <div
                     key={option.id}
-                    onClick={() => handleLaunchSim(option.id, "practice")}
+                    onClick={() => handleLaunchSim(option, "practice")}
                     className="group relative overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800 hover:border-emerald-500/50 transition-colors cursor-pointer flex items-center p-3 gap-4"
                   >
                     <div className="w-20 h-20 rounded-lg overflow-hidden shrink-0">
@@ -377,6 +437,19 @@ export default function Home() {
             )}
           </Card>
         </div>
+      )}
+
+      {/* Context Injection Modal */}
+      {pendingContextScenario?.scenario.contextConfig && (
+        <ContextInjectionPanel
+          title={pendingContextScenario.scenario.contextConfig.title}
+          subtitle={pendingContextScenario.scenario.contextConfig.subtitle}
+          fields={pendingContextScenario.scenario.contextConfig.fields}
+          quickChips={pendingContextScenario.scenario.contextConfig.quickChips}
+          chipTargetField={pendingContextScenario.scenario.contextConfig.chipTargetField}
+          onLaunch={handleContextLaunch}
+          onCancel={() => setPendingContextScenario(null)}
+        />
       )}
     </div>
   );

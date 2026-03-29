@@ -35,8 +35,8 @@ export interface StagedIntakeConfig {
     placeholder: string;
     maxLength: number;
     multiline?: boolean;
-    type?: "text" | "imageSelect";
-    options?: Array<{ id: string; label: string; imagePath: string }>;
+    type?: "text" | "imageSelect" | "pillSelect";
+    options?: Array<{ id: string; label: string; imagePath?: string; description?: string }>;
   }>;
   /** Instructions sent to the pre-flight LLM for compilation */
   compilationPrompt: string;

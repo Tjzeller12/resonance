@@ -32,17 +32,9 @@ const SIM_CONFIGS: Record<string, { image: string; configId?: string }> = {
         image: '/resources/sim_env_imgs/dating_training.png',
         configId: "184abf66-e8bd-4c30-8b4f-b4e1b3b68150", 
     },
-    bar_pickup: {
-        image: '/resources/sim_env_imgs/pickup_at_bar.png',
-        configId: "b19dd7d0-68df-4700-a5f6-54dabe3ba021", 
-    },
-    high_end_dinner_date: {
+    dating: {
         image: '/resources/sim_env_imgs/high_end_dinner_date.png',
         configId: "2af8f2e3-3e4d-4337-9fb6-78408dc07dbb", 
-    },
-    park_date: {
-        image: '/resources/sim_env_imgs/park_date.png',
-        configId: "90422709-e1e5-4e90-94fe-9f5feab5028a", 
     },
 };
 

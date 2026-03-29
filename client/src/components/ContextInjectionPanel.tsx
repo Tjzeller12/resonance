@@ -5,6 +5,8 @@ export interface ContextField {
     label: string;
     placeholder?: string;
     maxLength: number;
+    type?: 'text' | 'imageSelect' | 'pillSelect';
+    options?: Array<{ id: string; label: string; imagePath?: string; description?: string }>;
 }
 
 interface ContextInjectionPanelProps {
@@ -71,27 +73,69 @@ export default function ContextInjectionPanel({
                             <label className="text-sm font-semibold text-neutral-300 tracking-wide">
                                 {field.label}
                             </label>
-                            <textarea
-                                value={values[field.key]}
-                                onChange={(e) =>
-                                    handleChange(field.key, e.target.value, field.maxLength)
-                                }
-                                placeholder={field.placeholder}
-                                rows={3}
-                                className="w-full bg-neutral-800 border border-neutral-700 rounded-xl px-4 py-3 text-white text-sm placeholder-neutral-500 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 resize-none transition-colors"
-                            />
-                            <div className="text-xs text-neutral-500 text-right tabular-nums">
-                                <span
-                                    className={
-                                        (values[field.key]?.length || 0) >= field.maxLength * 0.9
-                                            ? 'text-amber-400'
-                                            : ''
-                                    }
-                                >
-                                    {values[field.key]?.length || 0}
-                                </span>
-                                /{field.maxLength}
-                            </div>
+                            {field.type === 'imageSelect' ? (
+                                <div className="grid grid-cols-2 gap-3">
+                                    {field.options?.map((opt) => (
+                                        <div
+                                            key={opt.id}
+                                            onClick={() => handleChange(field.key, opt.id, 1000)}
+                                            className={`cursor-pointer rounded-xl border p-2 transition-all ${
+                                                values[field.key] === opt.id
+                                                    ? 'bg-blue-500/20 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)] scale-[1.02]'
+                                                    : 'bg-neutral-800/80 border-neutral-700 hover:border-neutral-500 hover:bg-neutral-700'
+                                            }`}
+                                        >
+                                            {opt.imagePath && <img src={opt.imagePath} alt={opt.label} className="w-full h-24 object-cover rounded-lg mb-2" />}
+                                            <p className="text-center text-sm font-semibold text-white">{opt.label}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : field.type === 'pillSelect' ? (
+                                <div className="grid grid-cols-2 gap-3">
+                                    {field.options?.map((opt) => (
+                                        <div
+                                            key={opt.id}
+                                            onClick={() => handleChange(field.key, opt.id, 1000)}
+                                            className={`cursor-pointer rounded-xl border p-3 flex flex-col justify-center gap-1 transition-all ${
+                                                values[field.key] === opt.id
+                                                    ? 'bg-purple-500/20 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.3)] scale-[1.02]'
+                                                    : 'bg-neutral-800/80 border-neutral-700 hover:border-neutral-500 hover:bg-neutral-700'
+                                            }`}
+                                        >
+                                            <div className="text-sm font-bold text-white text-center">{opt.label}</div>
+                                            {opt.description && (
+                                                <div className="text-xs text-neutral-400 text-center leading-tight">
+                                                    {opt.description}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <>
+                                    <textarea
+                                        value={values[field.key]}
+                                        onChange={(e) =>
+                                            handleChange(field.key, e.target.value, field.maxLength)
+                                        }
+                                        placeholder={field.placeholder}
+                                        rows={3}
+                                        className="w-full bg-neutral-800 border border-neutral-700 rounded-xl px-4 py-3 text-white text-sm placeholder-neutral-500 focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/30 resize-none transition-colors"
+                                    />
+                                    <div className="text-xs text-neutral-500 text-right tabular-nums">
+                                        <span
+                                            className={
+                                                (values[field.key]?.length || 0) >= field.maxLength * 0.9
+                                                    ? 'text-amber-400'
+                                                    : ''
+                                            }
+                                        >
+                                            {values[field.key]?.length || 0}
+                                        </span>
+                                        /{field.maxLength}
+                                    </div>
+                                </>
+                            )}
                         </div>
                     ))}
 

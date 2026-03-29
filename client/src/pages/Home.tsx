@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Card from "../components/common/Card";
-import ContextInjectionPanel from "../components/ContextInjectionPanel";
 import type { ContextField } from "../components/ContextInjectionPanel";
+import ContextInjectionPanel from "../components/ContextInjectionPanel";
+import StagedIntakePanel from "../components/StagedIntakePanel";
+import type { StagedIntakeConfig } from "../types/stagedSimulation";
 
 interface ContextConfig {
   title: string;
@@ -17,6 +19,7 @@ interface ScenarioItem {
   label: string;
   image: string;
   contextConfig?: ContextConfig;
+  stagedIntakeConfig?: StagedIntakeConfig;
 }
 
 interface Category {
@@ -54,6 +57,59 @@ const DATING_CONTEXT_CONFIG: ContextConfig = {
     "Casual Attire", "Dressed Up", "Modest", "Streetwear",
   ],
   chipTargetField: "date_persona",
+};
+
+const INTERVIEW_COMPILATION_PROMPT = `You are an expert interview coach creating a structured interview plan.
+Given the candidate's resume and the job description, design a 4-stage mock interview.
+
+Rules for each stage prompt:
+- Must be ≤1800 characters
+- Must be a COMPLETE, self-contained system prompt for a voice AI interviewer
+- Include specific questions the AI should ask based on the resume/JD
+- Include grading criteria hints (what makes a good vs bad answer)
+- The AI should act as a professional interviewer throughout
+- VERY IMPORTANT: For Stages 1, 2, and 3, EXPLICITLY instruct the AI that it must NOT wrap up or conclude the interview. It must ONLY state that it is moving to the next section and then immediately execute the 'advance_stage' tool call.
+- Only in Stage 4 should the AI wrap up the interview and conclude normally.
+
+Stages should be:
+1. Icebreaker & Behavioral (warmup, tell me about yourself, why this role)
+2. Role-Specific Behavioral (STAR-method questions based on the JD requirements)
+3. Technical/Domain Knowledge (role-specific technical questions)
+4. Candidate Questions & Wrap-up (let them ask questions, give closing feedback)
+
+Return ONLY valid JSON.`;
+
+const INTERVIEW_INTAKE_CONFIG: StagedIntakeConfig = {
+  title: "Interview Setup",
+  subtitle: "Paste your resume and the target job description. We'll compile a structured interview.",
+  fields: [
+    {
+      key: "resume",
+      label: "Your Resume",
+      placeholder: "Paste your resume text here...",
+      maxLength: 5000,
+      multiline: true,
+    },
+    {
+      key: "job_description",
+      label: "Job Description",
+      placeholder: "Paste the job posting / description here...",
+      maxLength: 3000,
+      multiline: true,
+    },
+    {
+      key: "environment",
+      label: "Environment Style",
+      placeholder: "Select your interview environment",
+      maxLength: 100,
+      type: "imageSelect",
+      options: [
+        { id: "tech", label: "Tech Office", imagePath: "/resources/sim_env_imgs/interview_at_tech.png" },
+        { id: "finance", label: "Finance Office", imagePath: "/resources/sim_env_imgs/finance_interview.png" }
+      ]
+    },
+  ],
+  compilationPrompt: INTERVIEW_COMPILATION_PROMPT,
 };
 
 const CATEGORIES: Category[] = [
@@ -106,14 +162,10 @@ const CATEGORIES: Category[] = [
     ],
     practiceOptions: [
       {
-        id: "tech_interview",
-        label: "Tech Interview",
+        id: "interview",
+        label: "Interview",
         image: "/resources/sim_env_imgs/interview_at_tech.png",
-      },
-    {
-        id: "fin_interview",
-        label: "Finance Interview",
-        image: "/resources/sim_env_imgs/finance_interview.png",
+        stagedIntakeConfig: INTERVIEW_INTAKE_CONFIG,
       },
     ],
   },
@@ -163,6 +215,10 @@ export default function Home() {
     scenario: ScenarioItem;
     mode: "training" | "practice";
   } | null>(null);
+  const [pendingStagedScenario, setPendingStagedScenario] = useState<{
+    scenario: ScenarioItem;
+    mode: "training" | "practice";
+  } | null>(null);
 
   const handleSelectCategory = (categoryId: string) => {
     setSelectedCategoryId(categoryId);
@@ -176,7 +232,9 @@ export default function Home() {
     scenario: ScenarioItem,
     mode: "training" | "practice",
   ) => {
-    if (scenario.contextConfig) {
+    if (scenario.stagedIntakeConfig) {
+      setPendingStagedScenario({ scenario, mode });
+    } else if (scenario.contextConfig) {
       setPendingContextScenario({ scenario, mode });
     } else {
       void navigate(`/simulation?scenarioId=${scenario.id}&mode=${mode}`);
@@ -449,6 +507,21 @@ export default function Home() {
           chipTargetField={pendingContextScenario.scenario.contextConfig.chipTargetField}
           onLaunch={handleContextLaunch}
           onCancel={() => setPendingContextScenario(null)}
+        />
+      )}
+
+      {/* Staged Intake Modal (Interviews, Sales, Presentations) */}
+      {pendingStagedScenario?.scenario.stagedIntakeConfig && (
+        <StagedIntakePanel
+          config={pendingStagedScenario.scenario.stagedIntakeConfig}
+          scenarioId={pendingStagedScenario.scenario.id}
+          onLaunch={() => {
+            void navigate(
+              `/simulation?scenarioId=${pendingStagedScenario.scenario.id}&mode=${pendingStagedScenario.mode}`,
+            );
+            setPendingStagedScenario(null);
+          }}
+          onCancel={() => setPendingStagedScenario(null)}
         />
       )}
     </div>

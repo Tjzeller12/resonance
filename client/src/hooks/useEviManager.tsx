@@ -1,4 +1,5 @@
 import { useVoice } from '@humeai/voice-react';
+import type { Hume } from 'hume';
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -23,13 +24,9 @@ const SIM_CONFIGS: Record<string, { image: string; configId?: string }> = {
         image: '/resources/sim_env_imgs/interview_training.png',
         configId: "838d4afb-2927-4975-82b5-d4b75a17db62", 
     },
-    tech_interview: {
+    interview: {
         image: '/resources/sim_env_imgs/interview_at_tech.png',
         configId: "d7f0c27e-7425-4764-96f4-fc24453fbd30", 
-    },
-    fin_interview: {
-        image: '/resources/sim_env_imgs/finance_interview.png',
-        configId: "1b68a8ca-2b74-4e1c-ae52-095cf21775ae", 
     },
     masculine_frame_training: {
         image: '/resources/sim_env_imgs/dating_training.png',
@@ -54,9 +51,16 @@ export const useEviManager = () => {
     const [searchParams] = useSearchParams();
     const scenarioId = searchParams.get('scenarioId') || 'downward_inflection_technique_training';
     
-    const activeConfig: { image: string , configId?: string } = (scenarioId in SIM_CONFIGS) 
+    const baseConfig: { image: string , configId?: string } = (scenarioId in SIM_CONFIGS) 
         ? SIM_CONFIGS[scenarioId] 
         : SIM_CONFIGS.downward_inflection_technique_training;
+        
+    const customBgImg = sessionStorage.getItem(`staged_simulation_bg_${scenarioId}`);
+    
+    const activeConfig = {
+        ...baseConfig,
+        image: customBgImg || baseConfig.image
+    };
 
     // Read injected context from sessionStorage (set by ContextInjectionPanel)
     const contextRaw = typeof window !== 'undefined' 
@@ -91,33 +95,86 @@ export const useEviManager = () => {
             const apiKey = String(import.meta.env.VITE_HUME_API_KEY ?? '');
             const contextText = contextData ? buildContextString(contextData) : null;
 
+            // Check for staged simulation data (from pre-flight compiler)
+            const stagedRaw = typeof window !== 'undefined'
+                ? sessionStorage.getItem(`stages_${scenarioId}`)
+                : null;
+            interface StagedData { stages: Array<{ prompt: string; title: string }> }
+            const stagedData = stagedRaw ? (JSON.parse(stagedRaw) as StagedData) : null;
+            const initialStagePrompt = stagedData?.stages?.[0]?.prompt ?? null;
+
             console.log('[EVI] Starting session...', {
                 scenarioId,
                 configId: activeConfig.configId,
                 hasContext: !!contextText,
-                contextText,
+                hasStages: !!initialStagePrompt,
+                stagePromptLength: initialStagePrompt?.length,
             });
 
-            // 1. Connect with context in session settings
+            // Build connect options
+            type SessionSettingsObj = {
+                type: 'session_settings';
+                systemPrompt?: string;
+                context?: { text: string; type: 'persistent' };
+                tools?: Array<{
+                    type: 'function';
+                    name: string;
+                    description: string;
+                    parameters: {
+                        type: 'object';
+                        properties: Record<string, unknown>;
+                        required?: string[];
+                    };
+                }>;
+            };
+
+            const sessionSettings: SessionSettingsObj = {
+                type: 'session_settings' as const,
+                tools: [
+                    {
+                        type: 'function',
+                        name: 'advance_stage',
+                        description: 'Call this tool when the requirements for the current interview stage have been met and it is time to move on to the next stage of the interview. This will end the current stage and load the next one.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                reason: {
+                                    type: 'string',
+                                    description: 'A brief explanation of why the requirements for the current stage have been met and why you are advancing to the next stage.',
+                                },
+                            },
+                            required: ['reason'],
+                        },
+                    }
+                ]
+            };
+
+            if (initialStagePrompt) {
+                // Staged simulation: override system prompt with stage 1
+                // Add explicit instruction for tool use to ensure EVI knows when to advance
+                const promptWithTool = `${initialStagePrompt}\n\nIMPORTANT: Once the requirements for this stage are complete, use the 'advance_stage' tool call to move on to the next stage.`;
+                sessionSettings.systemPrompt = promptWithTool;
+                console.log(`[EVI] Staged mode: stage 1 prompt (${promptWithTool.length} chars)`);
+            } else if (contextText) {
+                // Context injection (dating): append to user messages
+                sessionSettings.context = {
+                    text: contextText,
+                    type: 'persistent',
+                };
+            }
+
+            const hasSessionSettings = sessionSettings.systemPrompt || sessionSettings.context || sessionSettings.tools;
+
             await connect({
                 auth: { type: 'apiKey', value: apiKey },
                 ...(activeConfig.configId ? { configId: activeConfig.configId } : {}),
-                ...(contextText ? {
-                    sessionSettings: {
-                        type: 'session_settings' as const,
-                        context: {
-                            text: contextText,
-                            type: 'persistent' as const,
-                        },
-                    },
-                } : {}),
+                ...(hasSessionSettings ? { sessionSettings: sessionSettings as Hume.empathicVoice.SessionSettings } : {}),
             });
 
             console.log('[EVI] Connected.');
 
-            if (contextText) {
-                // Send context via sendSessionSettings after connect
-                // This sends a WebSocket message that Hume appends to user messages
+            // Post-connect: also send context via sendSessionSettings (belt)
+            if (contextText && !initialStagePrompt) {
                 try {
                     sendSessionSettings({
                         context: {
@@ -125,13 +182,14 @@ export const useEviManager = () => {
                             type: 'persistent',
                         },
                     });
-                    console.log('[EVI] ✅ sendSessionSettings sent');
-                    // Store on window for console debugging: type window.__eviContext in console
-                    (window as unknown as Record<string, unknown>).__eviContext = contextText;
+                    console.log('[EVI] ✅ sendSessionSettings context sent');
                 } catch (e) {
                     console.warn('[EVI] ⚠️ sendSessionSettings failed:', e);
                 }
+            }
 
+            // Clean up session data after connect
+            if (contextData) {
                 sessionStorage.removeItem(`context_${scenarioId}`);
             }
         } catch (err) {

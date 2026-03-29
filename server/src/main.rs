@@ -1,13 +1,15 @@
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use std::net::SocketAddr;
+use tower_http::cors::{CorsLayer, Any};
 use tracing::{info, warn};
 use serde::Serialize;
 mod sensors;
+mod compiler;
 
 #[tokio::main]
 async fn main() {
@@ -20,12 +22,20 @@ async fn main() {
         )
         .init();
 
-    // 2. Build App with /ws route
+    // 2. CORS layer for frontend access
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    // 3. Build App with routes
     let app = Router::new()
         .route("/", get(|| async { "Resonance Server Active" }))
-        .route("/ws", get(ws_handler));
+        .route("/ws", get(ws_handler))
+        .route("/api/compile", post(compiler::compile_handler))
+        .layer(cors);
 
-    // 3. Bind and Serve
+    // 4. Bind and Serve
     // Use 0.0.0.0 to listen on all interfaces (needed for Android/LAN access)
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     info!("🚀 Server listening on {}", addr);

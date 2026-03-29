@@ -77,7 +77,7 @@ export default function StagedIntakePanel({
                                         {field.options?.map((opt) => (
                                             <div
                                                 key={opt.id}
-                                                onClick={() => handleChange(field.key, opt.imagePath, 1000)}
+                                                onClick={() => handleChange(field.key, opt.imagePath as string, 1000)}
                                                 className={`cursor-pointer rounded-xl border p-2 transition-all ${
                                                     values[field.key] === opt.imagePath
                                                         ? 'bg-blue-500/20 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)] scale-[1.02]'
@@ -86,6 +86,27 @@ export default function StagedIntakePanel({
                                             >
                                                 <img src={opt.imagePath} alt={opt.label} className="w-full h-24 object-cover rounded-lg mb-2" />
                                                 <p className="text-center text-sm font-semibold text-white">{opt.label}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : field.type === 'pillSelect' ? (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {field.options?.map((opt) => (
+                                            <div
+                                                key={opt.id}
+                                                onClick={() => handleChange(field.key, opt.id, 1000)}
+                                                className={`cursor-pointer rounded-xl border p-3 flex flex-col justify-center gap-1 transition-all ${
+                                                    values[field.key] === opt.id
+                                                        ? 'bg-purple-500/20 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.3)] scale-[1.02]'
+                                                        : 'bg-neutral-800/80 border-neutral-700 hover:border-neutral-500 hover:bg-neutral-700'
+                                                }`}
+                                            >
+                                                <div className="text-sm font-bold text-white text-center">{opt.label}</div>
+                                                {opt.description && (
+                                                    <div className="text-xs text-neutral-400 text-center leading-tight">
+                                                        {opt.description}
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>

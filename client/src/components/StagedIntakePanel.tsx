@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { usePreFlightCompiler } from '../hooks/usePreFlightCompiler';
 import type { StagedIntakeConfig, SimulationStage } from '../types/stagedSimulation';
+import { INTERVIEW_PERSONALITIES } from '../data/homeConfigs';
 
 interface StagedIntakePanelProps {
     config: StagedIntakeConfig;
@@ -35,7 +36,35 @@ export default function StagedIntakePanel({
 
     const handleCompile = async () => {
         setStep('compiling');
-        const result = await compile(values, config.compilationPrompt, scenarioId);
+        
+        // Resolve random personality before sending to compiler
+        const processedValues = { ...values };
+        let selectedPersonalityId = processedValues.personality;
+
+        if (selectedPersonalityId === 'random') {
+            const personalityField = config.fields.find(f => f.key === 'personality');
+            if (personalityField?.options) {
+                const otherOptions = personalityField.options.filter(o => o.id !== 'random');
+                if (otherOptions.length > 0) {
+                    const randomOpt = otherOptions[Math.floor(Math.random() * otherOptions.length)];
+                    selectedPersonalityId = randomOpt.id;
+                    processedValues.personality = randomOpt.id;
+                    console.log(`[StagedIntake] Resolved 'random' personality to: ${randomOpt.id}`);
+                }
+            }
+        }
+
+        // Inject the chosen personality's AI description into the prompt
+        let finalPrompt = config.compilationPrompt;
+        const personalityConfig = INTERVIEW_PERSONALITIES[selectedPersonalityId];
+        if (personalityConfig) {
+            finalPrompt = finalPrompt.replace('{personality_description}', personalityConfig.aiDescription);
+        } else {
+            // Fallback for custom or missing personalities
+            finalPrompt = finalPrompt.replace('{personality_description}', `Embody a ${selectedPersonalityId} personality.`);
+        }
+
+        const result = await compile(processedValues, finalPrompt, scenarioId);
         if (result) {
             setCompiledStages(result.stages);
             setCompiledSummary(result.summary);
@@ -199,7 +228,7 @@ export default function StagedIntakePanel({
                             className="flex items-start gap-4 p-4 bg-neutral-800/60 border border-neutral-700/40 rounded-xl"
                         >
                             {/* Stage number */}
-                            <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+                            <div className="shrink-0 w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
                                 <span className="text-sm font-bold text-blue-400">{i + 1}</span>
                             </div>
                             {/* Stage info */}
@@ -213,7 +242,7 @@ export default function StagedIntakePanel({
                                 </p>
                             </div>
                             {/* Prompt length indicator */}
-                            <div className={`flex-shrink-0 text-xs tabular-nums ${
+                            <div className={`shrink-0 text-xs tabular-nums ${
                                 stage.prompt.length > 1800 ? 'text-amber-400' : 'text-neutral-600'
                             }`}>
                                 {stage.prompt.length}c

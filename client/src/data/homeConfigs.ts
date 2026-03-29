@@ -72,21 +72,50 @@ export const DATING_CONTEXT_CONFIG: ContextConfig = {
   ]
 };
 
+export interface InterviewPersonality {
+  id: string;
+  label: string;
+  userDescription: string;
+  aiDescription: string;
+}
+
+export const INTERVIEW_PERSONALITIES: Record<string, InterviewPersonality> = {
+  kind_mentor: {
+    id: "kind_mentor",
+    label: "The Kind Mentor",
+    userDescription: "Supportive, encouraging, looking for potential.",
+    aiDescription: "Supportive, encouraging, and looking for potential. Maintain a warm, coaching tone."
+  },
+  vibe_check: {
+    id: "vibe_check",
+    label: "The Culture Match",
+    userDescription: "Casual, informal, focuses heavily on vibe and how you work.",
+    aiDescription: "Casual, informal, and focused on culture fit. Use a friendly, conversational tone to assess how the candidate works with others."
+  },
+  stress_tester: {
+    id: "stress_tester",
+    label: "The Stress-Tester",
+    userDescription: "Professional but cold. Skeptical, asks tough follow-ups, tests your ability to defend your work.",
+    aiDescription: "ROLE: You are an exacting, high-bar interviewer. You are strictly professional but entirely devoid of warmth. \n\nRULES OF ENGAGEMENT: \n1. Ask standard, complex interview questions. \n2. When the candidate answers, never offer praise or validation. Use flat, slightly dismissive acknowledgments (e.g., 'I see.', 'Right.', 'Standard approach.'). \n3. Test their confidence by asking exactly ONE skeptical follow-up per topic (e.g., 'But did that actually scale?', 'Why didn't you just use X instead?'). \n4. CRITICAL: Once they answer your follow-up, DO NOT debate them or go down a rabbit hole. Accept their defense with a cold 'Okay, let's move on' and immediately pivot to a completely new interview question. Sound perpetually rushed and slightly unimpressed. You have tough follow up questions (only ask a one or two follow ups then move on)"
+  }
+};
+
 export const INTERVIEW_COMPILATION_PROMPT = `You are an expert interview coach creating a structured interview plan.
 Given the candidate's resume and the job description, design a 4-stage mock interview.
 
 Rules for each stage prompt:
-- Must be ≤1800 characters
-- Must be a COMPLETE, self-contained system prompt for a voice AI interviewer
-- Include specific questions the AI should ask based on the resume/JD
-- Include grading criteria hints (what makes a good vs bad answer)
-- The AI should act as a professional interviewer throughout
+- Must be between 1200 and 1800 characters (BE DETAILED, use the space to provide depth).
+- Must be a COMPLETE, self-contained system prompt for a voice AI interviewer.
+- Include specific questions the AI should ask based on the resume/JD.
+- Include grading criteria hints (what makes a good vs bad answer).
+- The AI should act as a HIGHLY professional, senior-level interviewer throughout.
+- VERY IMPORTANT: Stage 1 MUST include a formal introduction. The AI must say something like "Hello, I'm [Name]. I've had a chance to thoroughly review your resume, and I'm looking forward to our conversation today. Let's start with..."
 - VERY IMPORTANT: For Stages 1, 2, and 3, EXPLICITLY instruct the AI that it must NOT wrap up or conclude the interview. It must ONLY state that it is moving to the next section and then immediately execute the 'advance_stage' tool call.
 - Only in Stage 4 should the AI wrap up the interview and conclude normally.
-- PERSONALITY: If a 'personality' input is provided, infuse EVERY stage's system prompt to strongly embody that personality/vibe. If the personality is 'random', creatively choose a distinct, compelling personality for the AI (e.g., erratic CEO, aggressive stress-tester, overly supportive mentor) and explicitly specify it in the generated prompts.
+- PERSONALITY: {personality_description}
 
 Stages should be:
-1. Icebreaker & Behavioral (warmup, tell me about yourself, why this role)
+1. Introduction & Behavioral (Formal intro, mention resume review, tell me about yourself, why this role)
 2. Role-Specific Behavioral (STAR-method questions based on the JD requirements)
 3. Technical/Domain Knowledge (role-specific technical questions)
 4. Candidate Questions & Wrap-up (let them ask questions, give closing feedback)
@@ -118,9 +147,11 @@ export const INTERVIEW_INTAKE_CONFIG: StagedIntakeConfig = {
       maxLength: 100,
       type: "pillSelect",
       options: [
-        { id: "kind_mentor", label: "The Kind Mentor", description: "Supportive, encouraging, looking for potential." },
-        { id: "stress_tester", label: "The Stress-Tester", description: "Cold, objective, asks tough follow-ups, pushes for depth." },
-        { id: "vibe_check", label: "The Culture Match", description: "Casual, informal, focuses heavily on vibe and how you work." },
+        ...Object.values(INTERVIEW_PERSONALITIES).map(p => ({
+          id: p.id,
+          label: p.label,
+          description: p.userDescription
+        })),
         { id: "random", label: "Surprise Me (Random)", description: "The AI will pick a random, distinct personality for the simulation." },
       ]
     },

@@ -14,25 +14,37 @@ const SIM_CONFIGS: Record<string, { image: string; configId?: string }> = {
     },
     pace_and_volume_variance_training: {
         image: '/resources/sim_env_imgs/dojo.png',
-        configId: "940686cb-95e5-4ff7-b384-128b2e330269", 
+        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
     },
     speaking_intelligence_training: {
         image: '/resources/sim_env_imgs/dojo.png',
-        configId: "6f47b2e8-c530-4510-a756-1d7b6a47ec1f", 
+        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
     },
     star_interview_training: {
         image: '/resources/sim_env_imgs/interview_training.png',
-        configId: "838d4afb-2927-4975-82b5-d4b75a17db62", 
+        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
     },
-    interview: {
+    tech_interview: {
         image: '/resources/sim_env_imgs/interview_at_tech.png',
+        configId: "d7f0c27e-7425-4764-96f4-fc24453fbd30", 
+    },
+    finance_interview: {
+        image: '/resources/sim_env_imgs/finance_interview.png',
         configId: "d7f0c27e-7425-4764-96f4-fc24453fbd30", 
     },
     masculine_frame_training: {
         image: '/resources/sim_env_imgs/dating_training.png',
-        configId: "184abf66-e8bd-4c30-8b4f-b4e1b3b68150", 
+        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
     },
-    dating: {
+    bar: {
+        image: '/resources/sim_env_imgs/pickup_at_bar.png',
+        configId: "2af8f2e3-3e4d-4337-9fb6-78408dc07dbb", 
+    },
+    park: {
+        image: '/resources/sim_env_imgs/park_date.png',
+        configId: "2af8f2e3-3e4d-4337-9fb6-78408dc07dbb", 
+    },
+    dinner: {
         image: '/resources/sim_env_imgs/high_end_dinner_date.png',
         configId: "2af8f2e3-3e4d-4337-9fb6-78408dc07dbb", 
     },

@@ -45,18 +45,6 @@ export const DATING_CONTEXT_CONFIG: ContextConfig = {
       maxLength: 250,
     },
     {
-      key: "scenario",
-      label: "The Scenario",
-      placeholder: "Select where the date is happening",
-      maxLength: 100,
-      type: "imageSelect",
-      options: [
-        { id: "bar", label: "Dive Bar", imagePath: "/resources/sim_env_imgs/pickup_at_bar.png" },
-        { id: "dinner", label: "Nice Restaurant", imagePath: "/resources/sim_env_imgs/high_end_dinner_date.png" },
-        { id: "park", label: "Park Walk", imagePath: "/resources/sim_env_imgs/park_date.png" }
-      ]
-    },
-    {
       key: "personality",
       label: "Their Personality",
       placeholder: "Select their vibe",
@@ -154,18 +142,7 @@ export const INTERVIEW_INTAKE_CONFIG: StagedIntakeConfig = {
         })),
         { id: "random", label: "Surprise Me (Random)", description: "The AI will pick a random, distinct personality for the simulation." },
       ]
-    },
-    {
-      key: "environment",
-      label: "Environment Style",
-      placeholder: "Select your interview environment",
-      maxLength: 100,
-      type: "imageSelect",
-      options: [
-        { id: "tech", label: "Tech Office", imagePath: "/resources/sim_env_imgs/interview_at_tech.png" },
-        { id: "finance", label: "Finance Office", imagePath: "/resources/sim_env_imgs/finance_interview.png" }
-      ]
-    },
+    }
   ],
   compilationPrompt: INTERVIEW_COMPILATION_PROMPT,
 };
@@ -220,9 +197,15 @@ export const CATEGORIES: Category[] = [
     ],
     practiceOptions: [
       {
-        id: "interview",
-        label: "Interview",
+        id: "tech_interview",
+        label: "Tech Office",
         image: "/resources/sim_env_imgs/interview_at_tech.png",
+        stagedIntakeConfig: INTERVIEW_INTAKE_CONFIG,
+      },
+      {
+        id: "finance_interview",
+        label: "Finance Office",
+        image: "/resources/sim_env_imgs/finance_interview.png",
         stagedIntakeConfig: INTERVIEW_INTAKE_CONFIG,
       },
     ],
@@ -243,8 +226,20 @@ export const CATEGORIES: Category[] = [
     ],
     practiceOptions: [
       {
-        id: "dating",
-        label: "Dating Simulator",
+        id: "bar",
+        label: "Dive Bar",
+        image: "/resources/sim_env_imgs/pickup_at_bar.png",
+        contextConfig: DATING_CONTEXT_CONFIG,
+      },
+      {
+        id: "park",
+        label: "Park Walk",
+        image: "/resources/sim_env_imgs/park_date.png",
+        contextConfig: DATING_CONTEXT_CONFIG,
+      },
+      {
+        id: "dinner",
+        label: "Nice Restaurant",
         image: "/resources/sim_env_imgs/high_end_dinner_date.png",
         contextConfig: DATING_CONTEXT_CONFIG,
       },

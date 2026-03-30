@@ -4,8 +4,8 @@ import Card from "../components/common/Card";
 import ContextInjectionPanel from "../components/ContextInjectionPanel";
 import StagedIntakePanel from "../components/StagedIntakePanel";
 import { buildDatingPrompt } from "../data/datingPrompts";
-
-import { CATEGORIES } from "../data/homeConfigs";
+import { buildTrainingPrompt } from "../data/trainingPrompts";
+import { CATEGORIES, DATING_CONTEXT_CONFIG } from "../data/homeConfigs";
 import type { ScenarioItem } from "../data/homeConfigs";
 
 export default function Home() {
@@ -34,6 +34,24 @@ export default function Home() {
     scenario: ScenarioItem,
     mode: "training" | "practice",
   ) => {
+    if (mode === "training") {
+      const prompt = buildTrainingPrompt(scenario.id);
+      
+      sessionStorage.setItem(`stages_${scenario.id}`, JSON.stringify({
+          summary: `Skill Training: ${scenario.label}`,
+          stages: [{
+               id: 'stage_1',
+               title: 'Training Mode',
+               prompt: prompt,
+               duration_hint: 'Continuous'
+          }]
+      }));
+      sessionStorage.setItem(`staged_simulation_bg_${scenario.id}`, scenario.image);
+      
+      void navigate(`/simulation?scenarioId=${scenario.id}&mode=${mode}`);
+      return;
+    }
+
     if (scenario.stagedIntakeConfig) {
       setPendingStagedScenario({ scenario, mode });
     } else if (scenario.contextConfig) {
@@ -46,11 +64,11 @@ export default function Home() {
   const handleContextLaunch = (context: Record<string, string>) => {
     if (!pendingContextScenario) return;
 
-    if (pendingContextScenario.scenario.id === 'dating') {
-        const prompt = buildDatingPrompt(context);
+    if (pendingContextScenario.scenario.contextConfig === DATING_CONTEXT_CONFIG) {
+        const scenarioId = pendingContextScenario.scenario.id;
+        const prompt = buildDatingPrompt(context, scenarioId);
         
-        // We inject the entire deterministic prompt as a 1-stage simulated environment
-        sessionStorage.setItem('stages_dating', JSON.stringify({
+        sessionStorage.setItem(`stages_${scenarioId}`, JSON.stringify({
             summary: 'A continuous dating roleplay scenario.',
             stages: [{
                  id: 'stage_1',
@@ -60,14 +78,9 @@ export default function Home() {
             }]
         }));
         
-        let customBg = pendingContextScenario.scenario.image;
-        if (context.scenario === 'bar') customBg = "/resources/sim_env_imgs/pickup_at_bar.png";
-        else if (context.scenario === 'park') customBg = "/resources/sim_env_imgs/park_date.png";
-        else if (context.scenario === 'dinner') customBg = "/resources/sim_env_imgs/high_end_dinner_date.png";
-
-        sessionStorage.setItem(`staged_simulation_bg_dating`, customBg);
+        sessionStorage.setItem(`staged_simulation_bg_${scenarioId}`, pendingContextScenario.scenario.image);
         
-        void navigate(`/simulation?scenarioId=dating&mode=${pendingContextScenario.mode}`);
+        void navigate(`/simulation?scenarioId=${scenarioId}&mode=${pendingContextScenario.mode}`);
         setPendingContextScenario(null);
         return;
     }

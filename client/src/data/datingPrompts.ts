@@ -70,18 +70,8 @@ SCENARIO B: The "Spark" (Attraction)
     }
 };
 
-export function buildDatingPrompt(context: Record<string, string>): string {
-    // If they picked 'random' for scenario or personality, resolve it here
-    const scenarioParam = context.scenario || 'dinner';
-    let scenarioId = 'dinner';
-    if (scenarioParam.includes('bar')) scenarioId = 'bar';
-    else if (scenarioParam.includes('park')) scenarioId = 'park';
-    else if (scenarioParam.includes('dinner')) scenarioId = 'dinner';
-    else if (scenarioParam === 'random') {
-        const scenarioKeys = Object.keys(DATING_SCENARIOS);
-        scenarioId = scenarioKeys[Math.floor(Math.random() * scenarioKeys.length)];
-    }
-
+export function buildDatingPrompt(context: Record<string, string>, scenarioId: string): string {
+    // Resolve random personality
     let personalityId = context.personality || 'warm_playful';
 
     if (personalityId === 'random') {
@@ -89,8 +79,8 @@ export function buildDatingPrompt(context: Record<string, string>): string {
         personalityId = perfKeys[Math.floor(Math.random() * perfKeys.length)];
     }
 
-    const scn = DATING_SCENARIOS[scenarioId];
-    const perf = DATING_PERSONALITIES[personalityId];
+    const scn = DATING_SCENARIOS[scenarioId] || DATING_SCENARIOS.dinner;
+    const perf = DATING_PERSONALITIES[personalityId] || DATING_PERSONALITIES.warm_playful;
 
     return `ROLE
 ${perf.nameAge}. ${scn.role}

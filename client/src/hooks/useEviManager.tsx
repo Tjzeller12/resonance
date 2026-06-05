@@ -3,6 +3,13 @@ import type { Hume } from 'hume';
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+/**
+ * SIM_CONFIGS serves as a mapping between scenario identifiers and their 
+ * specific visual/AI configurations.
+ * 
+ * - image: The background scene shown on the HUD.
+ * - configId: The Hume EVI Config UUID that dictates the AI's core instructions and tools.
+ */
 const SIM_CONFIGS: Record<string, { image: string; configId?: string }> = {
     downward_inflection_technique_training: {
         image: '/resources/sim_env_imgs/dojo.png',
@@ -36,6 +43,10 @@ const SIM_CONFIGS: Record<string, { image: string; configId?: string }> = {
         image: '/resources/sim_env_imgs/dating_training.png',
         configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
     },
+    playground_training: {
+        image: '/resources/sim_env_imgs/dojo.png',
+        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
+    },
     bar: {
         image: '/resources/sim_env_imgs/pickup_at_bar.png',
         configId: "2af8f2e3-3e4d-4337-9fb6-78408dc07dbb", 
@@ -50,15 +61,44 @@ const SIM_CONFIGS: Record<string, { image: string; configId?: string }> = {
     },
 };
 
+/**
+ * useEviManager is the primary orchestrator for the Hume Empathic Voice Interface (EVI).
+ * 
+ * It handles:
+ * 1. Selecting the correct AI configuration based on the URL's scenarioId.
+ * 2. Compiling and injecting "Appearance Context" (e.g., how the AI/User looks).
+ * 3. Initializing the session with 'staged' simulation data if available.
+ * 4. Configuring global tools like 'advance_stage'.
+ * 
+ * @returns An object containing session controls, status, and message history.
+ */
 export const useEviManager = () => {
-    const { connect, disconnect, status, messages, isMuted, mute, unmute, pauseAssistant, resumeAssistant, isPlaying, isPaused, sendSessionSettings } = useVoice();
+    // voice-react provides the underlying WebSocket connection and audio handling
+    const { 
+        connect, 
+        disconnect, 
+        status, 
+        messages, 
+        isMuted, 
+        mute, 
+        unmute, 
+        pauseAssistant, 
+        resumeAssistant, 
+        isPlaying, 
+        isPaused, 
+        sendSessionSettings 
+    } = useVoice();
+    
+    // Determine the scenario from the URL (e.g. ?scenarioId=tech_interview)
     const [searchParams] = useSearchParams();
     const scenarioId = searchParams.get('scenarioId') || 'downward_inflection_technique_training';
     
+    // Resolve which config we should use
     const baseConfig: { image: string , configId?: string } = (scenarioId in SIM_CONFIGS) 
         ? SIM_CONFIGS[scenarioId] 
         : SIM_CONFIGS.downward_inflection_technique_training;
         
+    // Optionally use a custom image if the pre-flight check set one in sessionStorage
     const customBgImg = sessionStorage.getItem(`staged_simulation_bg_${scenarioId}`);
     
     const activeConfig = {
@@ -66,7 +106,7 @@ export const useEviManager = () => {
         image: customBgImg || baseConfig.image
     };
 
-    // Read injected context from sessionStorage (set by ContextInjectionPanel)
+    // Load appearance/persona context injected by the user in the "Pre-flight" screens
     const contextRaw = typeof window !== 'undefined' 
         ? sessionStorage.getItem(`context_${scenarioId}`) 
         : null;
@@ -74,7 +114,10 @@ export const useEviManager = () => {
         ? (JSON.parse(contextRaw) as Record<string, string>) 
         : null;
 
-    // Build a natural-language context string
+    /**
+     * Converts raw key-value pair context data into a human-readable prompt
+     * that can be injected as 'persistent context' into EVI.
+     */
     const buildContextString = (context: Record<string, string>): string => {
         const parts: string[] = [];
         if (context.self_description?.trim()) {
@@ -94,12 +137,20 @@ export const useEviManager = () => {
             : '';
     };
 
+    /**
+     * startEviSession initializes the WebSocket connection to Hume.
+     * 
+     * It dynamically constructs 'SessionSettings' which can override the 
+     * default instructions for the given configId. This allows us to have
+     * generic configs (like 'Interview') that behave differently based on the 
+     * precise scenario (e.g. 'Software Engineer' vs 'Accountant').
+     */
     const startEviSession = useCallback(async () => {
         try {
             const apiKey = String(import.meta.env.VITE_HUME_API_KEY ?? '');
             const contextText = contextData ? buildContextString(contextData) : null;
 
-            // Check for staged simulation data (from pre-flight compiler)
+            // Check if there's a staged simulation (a list of prompts/stages) to follow
             const stagedRaw = typeof window !== 'undefined'
                 ? sessionStorage.getItem(`stages_${scenarioId}`)
                 : null;
@@ -112,10 +163,9 @@ export const useEviManager = () => {
                 configId: activeConfig.configId,
                 hasContext: !!contextText,
                 hasStages: !!initialStagePrompt,
-                stagePromptLength: initialStagePrompt?.length,
             });
 
-            // Build connect options
+            // Local type helper for session settings structure
             type SessionSettingsObj = {
                 type: 'session_settings';
                 systemPrompt?: string;
@@ -132,6 +182,7 @@ export const useEviManager = () => {
                 }>;
             };
 
+            // Common tools shared across all Resonance simulations
             const sessionSettings: SessionSettingsObj = {
                 type: 'session_settings' as const,
                 tools: [
@@ -153,14 +204,13 @@ export const useEviManager = () => {
                 ]
             };
 
+            // Priority: If we have stages (Interview mode), override the system prompt for stage 1.
+            // Otherwise, if we have appearance context, inject it as persistent context.
             if (initialStagePrompt) {
-                // Staged simulation: override system prompt with stage 1
-                // Add explicit instruction for tool use to ensure EVI knows when to advance
                 const promptWithTool = `${initialStagePrompt}\n\nIMPORTANT: Once the requirements for this stage are complete, use the 'advance_stage' tool call to move on to the next stage.`;
                 sessionSettings.systemPrompt = promptWithTool;
-                console.log(`[EVI] Staged mode: stage 1 prompt (${promptWithTool.length} chars)`);
+                console.log(`[EVI] Staged mode: stage 1 prompt initialized.`);
             } else if (contextText) {
-                // Context injection (dating): append to user messages
                 sessionSettings.context = {
                     text: contextText,
                     type: 'persistent',
@@ -169,6 +219,7 @@ export const useEviManager = () => {
 
             const hasSessionSettings = sessionSettings.systemPrompt || sessionSettings.context || sessionSettings.tools;
 
+            // ESTABLISH CONNECTION
             await connect({
                 auth: { type: 'apiKey', value: apiKey },
                 ...(activeConfig.configId ? { configId: activeConfig.configId } : {}),
@@ -177,7 +228,7 @@ export const useEviManager = () => {
 
             console.log('[EVI] Connected.');
 
-            // Post-connect: also send context via sendSessionSettings (belt)
+            // Fallback: If we had context but didn't use the initial session settings injection, send it now.
             if (contextText && !initialStagePrompt) {
                 try {
                     sendSessionSettings({
@@ -186,13 +237,12 @@ export const useEviManager = () => {
                             type: 'persistent',
                         },
                     });
-                    console.log('[EVI] ✅ sendSessionSettings context sent');
                 } catch (e) {
                     console.warn('[EVI] ⚠️ sendSessionSettings failed:', e);
                 }
             }
 
-            // Clean up session data after connect
+            // Clean up to prevent stale data in future re-connections
             if (contextData) {
                 sessionStorage.removeItem(`context_${scenarioId}`);
             }
@@ -201,6 +251,9 @@ export const useEviManager = () => {
         }
     }, [connect, activeConfig.configId, contextData, scenarioId, sendSessionSettings]);
 
+    /**
+     * Gracefully ends the AI connection
+     */
     const stopEviSession = useCallback(() => {
         void disconnect();
     }, [disconnect]);

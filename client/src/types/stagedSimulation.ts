@@ -10,6 +10,8 @@ export interface SimulationStage {
   context?: string;
   /** Hint for how long this stage should last, e.g. "2-3 questions" */
   duration_hint?: string;
+  /** Whether the stage is currently excluded from simulation */
+  disabled?: boolean;
 }
 
 /** Output from the pre-flight LLM compilation */
@@ -36,6 +38,7 @@ export interface StagedIntakeConfig {
     maxLength: number;
     multiline?: boolean;
     type?: "text" | "imageSelect" | "pillSelect";
+    defaultValue?: string;
     options?: Array<{ id: string; label: string; imagePath?: string; description?: string }>;
   }>;
   /** Instructions sent to the pre-flight LLM for compilation */

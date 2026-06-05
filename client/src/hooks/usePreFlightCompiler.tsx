@@ -4,15 +4,28 @@ import type { CompileResponse, CompiledSimulation } from '../types/stagedSimulat
 const COMPILE_ENDPOINT = 'http://localhost:3000/api/compile';
 
 /**
- * Hook that calls the Rust backend's /api/compile endpoint
- * to compile large text inputs into structured simulation stages
- * via Gemini Flash 3.
+ * usePreFlightCompiler acts as the bridge to the Resonance "Compiler" engine.
+ * 
+ * In Resonance, scenarios (like an Interview) aren't just one prompt. They are a 
+ * series of "Stages". This hook takes the user's high-level inputs and sends them 
+ * to our Rust backend, which uses Gemini Flash 1.5 to "compile" or distribute 
+ * those instructions into a structured multi-stage script.
+ * 
+ * @returns {Object} { compile, isCompiling, error, result }
  */
 export const usePreFlightCompiler = () => {
+    // UI states for the loading indicator and error handling
     const [isCompiling, setIsCompiling] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [result, setResult] = useState<CompiledSimulation | null>(null);
 
+    /**
+     * compile triggers the actual API call to the Rust backend.
+     * 
+     * @param inputs - The raw text provided by the user (e.g., job description, company info).
+     * @param compilationPrompt - The specialized prompt instructions that tell Gemini HOW to compile.
+     * @param scenarioId - The ID of the current scenario (used for storage keying).
+     */
     const compile = useCallback(async (
         inputs: Record<string, string>,
         compilationPrompt: string,
@@ -25,6 +38,7 @@ export const usePreFlightCompiler = () => {
         console.log('[PreFlight] Compiling...', { inputKeys: Object.keys(inputs), scenarioId });
 
         try {
+            // Send the compilation request to the local Rust binary
             const response = await fetch(COMPILE_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -47,14 +61,20 @@ export const usePreFlightCompiler = () => {
 
             console.log('[PreFlight] ✅ Compiled', data.data.stages.length, 'stages');
             
-            // Validate stage prompts are within Hume's limit
+            /**
+             * Hume EVI has a character limit for its system prompt (approx 7k).
+             * Since we are injecting these compiled stages as instructions, 
+             * we validate that the LLM hasn't hallucinated an overly verbose prompt.
+             */
             for (const stage of data.data.stages) {
-                if (stage.prompt.length > 2000) {
-                    console.warn(`[PreFlight] ⚠️ Stage "${stage.title}" prompt is ${stage.prompt.length} chars (limit: 2000)`);
+                if (stage.prompt.length > 7000) {
+                    console.warn(`[PreFlight] ⚠️ Stage "${stage.title}" prompt is ${stage.prompt.length} chars (limit: 7000)`);
                 }
             }
 
-            // Store in sessionStorage for the simulation page to read
+            // Persistence: We store the compiled script in sessionStorage so that 
+            // when the user navigates from "Pre-flight" to "Simulation", 
+            // the `useEviManager` hook can pick it up.
             sessionStorage.setItem(
                 `stages_${scenarioId}`,
                 JSON.stringify(data.data),

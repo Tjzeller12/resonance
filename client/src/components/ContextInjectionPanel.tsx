@@ -6,6 +6,7 @@ export interface ContextField {
     placeholder?: string;
     maxLength: number;
     type?: 'text' | 'imageSelect' | 'pillSelect';
+    defaultValue?: string;
     options?: Array<{ id: string; label: string; imagePath?: string; description?: string }>;
 }
 
@@ -29,7 +30,7 @@ export default function ContextInjectionPanel({
     onCancel,
 }: ContextInjectionPanelProps) {
     const [values, setValues] = useState<Record<string, string>>(
-        Object.fromEntries(fields.map((f) => [f.key, '']))
+        Object.fromEntries(fields.map((f) => [f.key, f.defaultValue || '']))
     );
 
     const handleChange = (key: string, value: string, maxLength: number) => {

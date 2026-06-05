@@ -5,16 +5,20 @@ use axum::{
     Router,
 };
 use std::net::SocketAddr;
+use tokio::sync::mpsc;
 use tower_http::cors::{CorsLayer, Any};
 use tracing::{info, warn};
 use serde::Serialize;
 mod sensors;
 mod compiler;
+mod deepgram;
+mod gemini;
+mod conversation_analyzer;
+mod rubrics;
 
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().ok(); // Load .env
-    // 1. Initialize Tracing
+    dotenv::dotenv().ok();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -22,21 +26,18 @@ async fn main() {
         )
         .init();
 
-    // 2. CORS layer for frontend access
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
 
-    // 3. Build App with routes
     let app = Router::new()
         .route("/", get(|| async { "Resonance Server Active" }))
         .route("/ws", get(ws_handler))
         .route("/api/compile", post(compiler::compile_handler))
+        .route("/api/analyze", post(conversation_analyzer::analyze_handler))
         .layer(cors);
 
-    // 4. Bind and Serve
-    // Use 0.0.0.0 to listen on all interfaces (needed for Android/LAN access)
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     info!("🚀 Server listening on {}", addr);
 
@@ -44,54 +45,96 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-/// Upgrades the HTTP connection to a WebSocket
 async fn ws_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(handle_socket)
 }
 
-/// Envelope format for all data sent over the WebSocket to the frontend.
-/// Uses `tag = "type", content = "data"` to generate clean `{ "type": "...", "data": ... }` JSON.
+/// Envelope for all messages sent to the frontend.
 #[derive(Serialize)]
 #[serde(tag = "type", content = "data")]
 enum ServerMessage {
     AudioMetrics(sensors::SensorMetrics),
+    WordBatch(deepgram::WordBatch),
 }
 
-/// Handles the actual WebSocket stream connection for a single client.
-/// Sits in an infinite loop waiting for binary audio chunks from the frontend.
+/// Handles a single WebSocket client connection.
+///
+/// On first audio chunk: opens a Deepgram streaming connection.
+/// Each audio chunk is both processed locally (pitch/volume) and forwarded to Deepgram.
+/// Deepgram word events are forwarded to the client in real-time.
 async fn handle_socket(mut socket: WebSocket) {
     info!("New WebSocket connection established");
 
     let mut audio_processor = sensors::AudioProcessor::new();
+    let mut dg_stream: Option<deepgram::DeepgramStream> = None;
 
-    while let Some(msg) = socket.recv().await {
-        match msg {
-            Ok(Message::Binary(audio_data))=> {
-                // 1. Process raw audio metrics
-                let samples: Vec<i16> = audio_data.chunks_exact(2)
-                    .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
-                    .collect();
-                
-                let metrics = audio_processor.process(&samples);
+    // Channel for receiving word batches from Deepgram reader task
+    let (word_tx, mut word_rx) = mpsc::unbounded_channel::<deepgram::WordBatch>();
 
-                let message = ServerMessage::AudioMetrics(metrics);
-                let json_response = serde_json::to_string(&message).unwrap();
+    loop {
+        tokio::select! {
+            // Branch 1: Message from frontend
+            msg = socket.recv() => {
+                match msg {
+                    Some(Ok(Message::Binary(audio_data))) => {
+                        // Start Deepgram stream on first audio chunk
+                        if dg_stream.is_none() {
+                            match deepgram::DeepgramStream::connect(word_tx.clone()).await {
+                                Ok(stream) => {
+                                    info!("🎙️ Deepgram stream started");
+                                    dg_stream = Some(stream);
+                                }
+                                Err(e) => {
+                                    warn!("Failed to start Deepgram stream: {}", e);
+                                }
+                            }
+                        }
 
-                if let Err(e) = socket.send(Message::Text(json_response.into())).await {
-                    warn!("Failed to send metrics: {:?}", e);
-                    break;
+                        // Forward raw bytes to Deepgram (before decoding)
+                        if let Some(ref stream) = dg_stream {
+                            stream.send_audio(&audio_data);
+                        }
+
+                        // Local DSP processing
+                        let samples: Vec<i16> = audio_data.chunks_exact(2)
+                            .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
+                            .collect();
+
+                        let metrics = audio_processor.process(&samples);
+                        let message = ServerMessage::AudioMetrics(metrics);
+                        let json = serde_json::to_string(&message).unwrap();
+
+                        if let Err(e) = socket.send(Message::Text(json.into())).await {
+                            warn!("Failed to send metrics: {:?}", e);
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) => {
+                        info!("WebSocket closed normally");
+                        break;
+                    }
+                    Some(Err(e)) => {
+                        warn!("WebSocket error: {}", e);
+                        break;
+                    }
+                    None => break,
+                    _ => {}
                 }
             }
 
-            Ok(Message::Close(_)) => {
-                info!("WebSocket closed connection normally");
-                break; 
+            // Branch 2: Word batch from Deepgram
+            Some(batch) = word_rx.recv() => {
+                let message = ServerMessage::WordBatch(batch);
+                let json = serde_json::to_string(&message).unwrap();
+                if let Err(e) = socket.send(Message::Text(json.into())).await {
+                    warn!("Failed to send word batch: {:?}", e);
+                    break;
+                }
             }
-            Err(e) => {
-                warn!("Gemini error: {}", e);
-                break;
-            }
-            _ => {} // Ignore other message types for now
         }
     }
+
+    // Cleanup: drop the Deepgram stream (triggers CloseStream)
+    drop(dg_stream);
+    info!("Session ended");
 }

@@ -1,92 +1,164 @@
 import { useCallback, useRef, useState } from "react";
 
-// Matches the JSON structure returned by the Rust backend's AudioMetrics message
+/**
+ * SensorMetrics represents the raw audio physics data processed by the Rust backend.
+ */
 export interface SensorMetrics {
-    volume: number,
-    pitch: number,
-    pitch_variance: number,
-    is_speaking: boolean,
-
+    /** The instantaneous volume/amplitude */
+    volume: number;
+    /** The detected fundamental frequency (Hz) */
+    pitch: number;
+    /** A measure of pitch stability over a short window */
+    pitch_variance: number;
+    /** Voice Activity Detection (VAD) status */
+    is_speaking: boolean;
 }
 
+/**
+ * matches the JSON structure returned by the Rust backend's AudioMetrics packet.
+ */
 interface AudioMetricsMessage {
     type: 'AudioMetrics';
     data: SensorMetrics;
+}
+
+/**
+ * A single word with its exact audio-stream-relative timestamps.
+ */
+export interface WordData {
+    word: string;
+    /** Seconds into the audio stream when this word started */
+    start: number;
+    /** Seconds into the audio stream when this word ended */
+    end: number;
+    /** Deepgram confidence (0.0 - 1.0) */
+    confidence: number;
+}
+
+/**
+ * A batch of finalized words from Deepgram streaming.
+ * Emitted each time Deepgram finalizes a segment of speech.
+ */
+export interface WordBatch {
+    /** Unix ms epoch when the Deepgram stream started */
+    stream_epoch_ms: number;
+    /** Finalized words with timestamps */
+    words: WordData[];
+    /** Transcript for this segment */
+    transcript: string;
+    /** True when Deepgram detects end-of-utterance (sentence boundary) */
+    speech_final: boolean;
+}
+
+interface WordBatchMessage {
+    type: 'WordBatch';
+    data: WordBatch;
 }
 
 interface UnknownMessage {
     type: string;
 }
 
-type ServerMessage = AudioMetricsMessage | UnknownMessage;
+type ServerMessage = AudioMetricsMessage | WordBatchMessage | UnknownMessage;
 
+/**
+ * useSensorMetrics manages the "Sensor" half of the architecture.
+ * 
+ * It is responsible for:
+ * 1. Capturing raw microphone audio via the Web Audio API.
+ * 2. Processing that audio through an AudioWorklet to get raw PCM data.
+ * 3. Streaming Int16 PCM audio at 16kHz to the Rust backend via WebSocket.
+ * 4. Receiving and storing real-time vocal metrics from the Rust backend.
+ * 
+ * @returns {Object} { isConnected, isStreaming, sensorMetrics, pitchHistory, startStreaming, stopStreaming, connect, disconnect }
+ */
 export const useSensorMetrics = () => {
+    // Number of data points to keep for the pitch trend chart
     const MAX_HISTORY: number = 60;
+    
     // --- State ---
     const [sensorMetrics, setSensorMetrics] = useState<SensorMetrics | null>(null);
     const [isStreaming, setIsStreaming] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
     const [pitchHistory, setPitchHistory] = useState<number[]>([]);
+    const [wordBatches, setWordBatches] = useState<WordBatch[]>([]);
 
-    // --- Refs (mutable values that survive re-renders but don't trigger them) ---
-    const ws: React.RefObject<WebSocket | null> = useRef<WebSocket | null>(null);              // WebSocket connection to the Rust server
-    const audioContext: React.RefObject<AudioContext | null> = useRef<AudioContext | null>(null); // Web Audio API context
-    const mediaStream: React.RefObject<MediaStream | null>= useRef<MediaStream | null>(null);  // Raw microphone stream from getUserMedia
-    const workletNode = useRef<AudioWorkletNode | null>(null);                                  // AudioWorklet node for PCM capture (runs on audio thread)
+    // --- Refs: Used for persistent objects that don't need to trigger re-renders ---
+    const ws: React.RefObject<WebSocket | null> = useRef<WebSocket | null>(null);              
+    const audioContext: React.RefObject<AudioContext | null> = useRef<AudioContext | null>(null); 
+    const mediaStream: React.RefObject<MediaStream | null>= useRef<MediaStream | null>(null);  
+    const workletNode = useRef<AudioWorkletNode | null>(null);                                  
+    
     const WS_URL = 'ws://localhost:3000/ws';
 
+    // Exponential Moving Average (EMA) for smoothing output pitch values
     const smoothedPitch = useRef<number>(0);
     const EMA_ALPHA = 0.8;
 
-    // Requests microphone access, builds the audio processing pipeline,
-    // and begins streaming Int16 PCM data to the Rust server via WebSocket
+    /**
+     * startStreaming builds the browser's audio pipeline.
+     * 
+     * RATIONALE:
+     * Standard Hume SDK handles audio internally, but for the "Sensor Fusion" feature,
+     * we need to stream our OWN copy of the audio to a custom Rust server for 
+     * low-latency physics analysis (pitch, volume).
+     */
     const startStreaming = async () => {
-
         try {
-            // Create audio context at 16kHz to match the Rust sensor's expected sample rate
+            /** 
+             * Create audio context at 16kHz. 
+             * 16kHz is the "Golden Standard" for speech models (Hume, Deepgram, Gemini).
+             */
             audioContext.current = new window.AudioContext({ sampleRate: 16000 });
 
             const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {channelCount: 1, sampleRate: 16000 }
+                audio: { channelCount: 1, sampleRate: 16000 }
             });
 
             mediaStream.current = stream;
 
-            // Wrap the microphone stream as a Web Audio source node
             const source = audioContext.current.createMediaStreamSource(stream);
 
-
-            // Load the AudioWorklet processor from /public — it runs on a dedicated audio thread
+            /** 
+             * Register the AudioWorklet processor. 
+             * This processor (found in public/audio-processor.js) runs on a 
+             * high-priority thread to prevent audio drop-outs.
+             */
             await audioContext.current.audioWorklet.addModule('/audio-processor.js');
 
             workletNode.current = new AudioWorkletNode(audioContext.current, 'audio-processor');
 
-            // Audio graph: microphone source → worklet (captures PCM) → destination (silent output)
+            // Connect the graph: Microphone -> Processor (Captures PCM) -> Destination (Silent)
             source.connect(workletNode.current);
             workletNode.current.connect(audioContext.current.destination);
 
+            /**
+             * The worklet sends us Float32 chunks. 
+             * We convert them to Int16 before sending to Rust to save bandwidth
+             * and match the expectations of our DSP (Digital Signal Processing) engine.
+             */
             workletNode.current.port.onmessage = (event: MessageEvent<Float32Array>) => {
                 if (ws.current?.readyState === WebSocket.OPEN) {
                     const float32Data: Float32Array = event.data;
-                    // Convert Float32 [-1.0, 1.0] → Int16 [-32768, 32767]
-                    // Int16 PCM is the standard format the Rust sensor expects
                     const int16Data = new Int16Array(float32Data.length);
                     for(let i = 0; i < float32Data.length; i++) {
-                        const s = Math.max(-1, Math.min(1, float32Data[i])); // clamp to valid range
-                        int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;     // scale to Int16 range
+                        const s = Math.max(-1, Math.min(1, float32Data[i])); // clamp
+                        int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;     // scale 
                     }
-
                     ws.current.send(int16Data.buffer);
                 }
             }
             setIsStreaming(true);
         } catch (err) {
-            console.error(err);
-            console.log("Audio Streaming Error");
+            console.error('[Sensor] Audio Streaming Error', err);
         }
     }
 
-    // Tears down the audio pipeline cleanly and releases the microphone
+    /**
+     * stopStreaming releases hardware resources.
+     * VERY IMPORTANT: We must stop the MediaStream tracks, otherwise the browser's
+     * "Mic in use" red indicator will stay on indefinitely.
+     */
     const stopStreaming = async () => {
         try {
             if (isStreaming) {
@@ -101,7 +173,6 @@ export const useSensorMetrics = () => {
                 }
 
                 if (mediaStream.current) {
-                    // Stopping tracks releases the microphone and turns off the browser's mic indicator
                     mediaStream.current.getTracks().forEach(track => track.stop());
                     mediaStream.current = null;
                 }
@@ -110,15 +181,14 @@ export const useSensorMetrics = () => {
             }
 
         } catch (err) {
-            console.error(err);
-            console.log('Audio Streaming Error When Attempting to Stop Streaming')
+            console.error('[Sensor] Error stopping stream', err);
         }
-        if (!isConnected) return;
-        
-
     }
 
-        // Parses incoming JSON messages from the Rust server and updates state accordingly
+    /**
+     * handleMessage processes signals sent back from the Rust backend.
+     * Handles both real-time AudioMetrics and post-turn DeepgramAnalysis.
+     */
     const handleMessage = useCallback((data: unknown) => {
         if (typeof data === 'string') {
             try {
@@ -126,41 +196,49 @@ export const useSensorMetrics = () => {
                 if (msg.type === 'AudioMetrics') {
                     const metrics = (msg as AudioMetricsMessage).data;
                     setSensorMetrics(metrics);
+                    
+                    /**
+                     * Smooth the pitch data for the visual timeline.
+                     * We ignore values < 80Hz as they are usually noise or silence.
+                     */
                     if (metrics.pitch > 80) {
                         smoothedPitch.current = (EMA_ALPHA * metrics.pitch) + ((1 - EMA_ALPHA) * smoothedPitch.current);
                         setPitchHistory(prev => [...prev.slice(-(MAX_HISTORY - 1)), smoothedPitch.current]);
                     }
-                } else {
-                    console.log("Unkown Message Type ", msg.type);
+                } else if (msg.type === 'WordBatch') {
+                    const batch = (msg as WordBatchMessage).data;
+                    setWordBatches(prev => [...prev, batch]);
+                    if (batch.speech_final) {
+                        console.log('%c[Sensor] 📝 Sentence complete', 'color: #06b6d4; font-weight: bold;',
+                            `"${batch.transcript}"`);
+                    }
                 }
             } catch (err) {
-                console.error("JSON Parse Error", err);
+                console.error("[Sensor] JSON Parse Error", err);
             }
         }
-        
     }, []);
 
-    // Opens the WebSocket connection to the Rust backend.
-    // Intentionally exposed so the consuming component controls when to connect
-    // (allows this hook to be used in non-display contexts too)
+    /**
+     * connect creates the control-plane connection to the Rust backend.
+     */
     const connect = useCallback((): void => {
         if (ws.current?.readyState === WebSocket.OPEN) return;
 
         try {
-            console.log('Connecting to', WS_URL);
+            console.log('[Sensor] Connecting to WebSocket...');
             ws.current = new WebSocket(WS_URL);
             ws.current.binaryType = 'arraybuffer';
 
             ws.current.onopen = () => {
-                console.log('WebSocket Connected');
+                console.log('[Sensor] WebSocket Connected');
                 setIsConnected(true);
             };
 
             ws.current.onclose = (e) => {
-                console.log('WebSocket Closed', e.code, e.reason);
+                console.log('[Sensor] WebSocket Closed', e.code, e.reason);
                 setIsConnected(false);
                 setIsStreaming(false);
-                // Reset live metrics to zero on disconnect (preserve pitch_variance for display)
                 setSensorMetrics(prev => ({
                     volume: 0,
                     pitch: 0,
@@ -170,19 +248,20 @@ export const useSensorMetrics = () => {
             };
 
             ws.current.onerror = (e) => {
-                console.log('WebSocket Error', e);
+                console.error('[Sensor] WebSocket Error', e);
             };
 
             ws.current.onmessage = (e) => {
                 handleMessage(e.data);
             };
         } catch (err) {
-            console.error(err);
+            console.error('[Sensor] Connection Error', err);
         }
     }, [handleMessage]);
 
-    // Closes the WebSocket connection cleanly.
-    // Nulls out event handlers first to suppress spurious onclose/onerror callbacks
+    /**
+     * disconnect closes the socket and prevents leaks by nulling out handlers.
+     */
     const disconnect = useCallback(() => {
         if (ws.current) {
             ws.current.onclose = null;
@@ -194,7 +273,6 @@ export const useSensorMetrics = () => {
         setIsConnected(false);
         setIsStreaming(false);
         return true;
-
     }, []);
 
     return {
@@ -202,10 +280,10 @@ export const useSensorMetrics = () => {
         isStreaming,
         sensorMetrics,
         pitchHistory,
+        wordBatches,
         startStreaming,
         stopStreaming,
         connect,
         disconnect
     }
-    
 }

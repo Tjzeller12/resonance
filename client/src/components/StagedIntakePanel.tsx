@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { usePreFlightCompiler } from '../hooks/usePreFlightCompiler';
 import type { StagedIntakeConfig, SimulationStage } from '../types/stagedSimulation';
 import { INTERVIEW_PERSONALITIES } from '../data/homeConfigs';
+import { Eye, EyeOff, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface StagedIntakePanelProps {
     config: StagedIntakeConfig;
@@ -20,7 +21,7 @@ export default function StagedIntakePanel({
 }: StagedIntakePanelProps) {
     const [step, setStep] = useState<Step>('input');
     const [values, setValues] = useState<Record<string, string>>(
-        Object.fromEntries(config.fields.map((f) => [f.key, '']))
+        Object.fromEntries(config.fields.map((f) => [f.key, f.defaultValue || '']))
     );
     const [compiledStages, setCompiledStages] = useState<SimulationStage[]>([]);
     const [compiledSummary, setCompiledSummary] = useState('');
@@ -54,20 +55,50 @@ export default function StagedIntakePanel({
             }
         }
 
-        // Inject the chosen personality's AI description into the prompt
+        // Inject the chosen personality's label into the prompt so Gemini knows the vibe
         let finalPrompt = config.compilationPrompt;
         const personalityConfig = INTERVIEW_PERSONALITIES[selectedPersonalityId];
         if (personalityConfig) {
-            finalPrompt = finalPrompt.replace('{personality_description}', personalityConfig.aiDescription);
+            finalPrompt = finalPrompt.replace('{personality_label}', personalityConfig.label);
         } else {
-            // Fallback for custom or missing personalities
-            finalPrompt = finalPrompt.replace('{personality_description}', `Embody a ${selectedPersonalityId} personality.`);
+            finalPrompt = finalPrompt.replace('{personality_label}', selectedPersonalityId);
         }
 
         const result = await compile(processedValues, finalPrompt, scenarioId);
         if (result) {
-            setCompiledStages(result.stages);
+            // DETERMINISTIC INJECTION: Prepend the hardcoded AI directives to each generated stage
+            const injectedStages = result.stages.map(stage => ({
+                ...stage,
+                prompt: personalityConfig 
+                    ? `${personalityConfig.aiDescription}\n\n${stage.prompt}`
+                    : stage.prompt
+            }));
+
+            // Store the injected version to sessionStorage (overwriting the raw version from usePreFlightCompiler)
+            sessionStorage.setItem(`stages_${scenarioId}`, JSON.stringify({
+                ...result,
+                stages: injectedStages
+            }));
+
+            setCompiledStages(injectedStages);
             setCompiledSummary(result.summary);
+            
+            // DEBUG: Verify first stage injection
+            console.log(`[StagedIntake] ✅ Personality "${selectedPersonalityId}" injected. First stage prompt sample:`, 
+                injectedStages[0].prompt.slice(0, 300) + "..."
+            );
+
+            // Log full plan for user review
+            console.log("==================================================");
+            console.log("📋 FULL COMPILED INTERVIEW PLAN");
+            console.log("==================================================");
+            injectedStages.forEach((s, i) => {
+                console.log(`\n--- STAGE ${i + 1}: ${s.title} (${s.prompt.length} chars) ---`);
+                console.log(s.prompt);
+                if (s.duration_hint) console.log(`Duration: ${s.duration_hint}`);
+            });
+            console.log("\n==================================================");
+            
             setStep('review');
         } else {
             // Error — go back to input to let user retry
@@ -79,7 +110,38 @@ export default function StagedIntakePanel({
         if (values.environment) {
             sessionStorage.setItem(`staged_simulation_bg_${scenarioId}`, values.environment);
         }
+
+        // Filter out disabled stages before starting
+        const activeStages = compiledStages.filter(s => !s.disabled);
+        
+        if (activeStages.length === 0) {
+            alert("Please enable at least one stage to start.");
+            return;
+        }
+
+        // Final sync of ONLY active stages to sessionStorage
+        sessionStorage.setItem(`stages_${scenarioId}`, JSON.stringify({
+            summary: compiledSummary,
+            stages: activeStages
+        }));
+
         onLaunch();
+    };
+
+    const handleToggleStage = (index: number) => {
+        setCompiledStages(prev => prev.map((s, i) => 
+            i === index ? { ...s, disabled: !s.disabled } : s
+        ));
+    };
+
+    const handleMoveStage = (index: number, direction: 'up' | 'down') => {
+        const newStages = [...compiledStages];
+        const swapIndex = direction === 'up' ? index - 1 : index + 1;
+        
+        if (swapIndex < 0 || swapIndex >= newStages.length) return;
+
+        [newStages[index], newStages[swapIndex]] = [newStages[swapIndex], newStages[index]];
+        setCompiledStages(newStages);
     };
 
     // ─── Input Step ─────────────────────────────────────────────────
@@ -221,31 +283,77 @@ export default function StagedIntakePanel({
                 </div>
 
                 {/* Stage List */}
-                <div className="px-6 py-5 flex flex-col gap-3 max-h-[50vh] overflow-y-auto">
+                <div className="px-6 py-5 flex flex-col gap-3 max-h-[50vh] overflow-y-auto custom-scrollbar">
                     {compiledStages.map((stage, i) => (
                         <div
                             key={stage.id}
-                            className="flex items-start gap-4 p-4 bg-neutral-800/60 border border-neutral-700/40 rounded-xl"
+                            className={`flex items-start gap-4 p-4 border rounded-xl transition-all ${
+                                stage.disabled 
+                                    ? 'bg-neutral-900/40 border-neutral-800 opacity-50 grayscale-[0.5]' 
+                                    : 'bg-neutral-800/60 border-neutral-700/40'
+                            }`}
                         >
                             {/* Stage number */}
-                            <div className="shrink-0 w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
-                                <span className="text-sm font-bold text-blue-400">{i + 1}</span>
+                            <div className={`shrink-0 w-8 h-8 rounded-lg border flex items-center justify-center transition-colors ${
+                                stage.disabled 
+                                    ? 'bg-neutral-800 border-neutral-700' 
+                                    : 'bg-blue-600/20 border-blue-500/30'
+                            }`}>
+                                <span className={`text-sm font-bold ${stage.disabled ? 'text-neutral-500' : 'text-blue-400'}`}>
+                                    {i + 1}
+                                </span>
                             </div>
+
                             {/* Stage info */}
                             <div className="flex-1 min-w-0">
-                                <h3 className="text-sm font-semibold text-white">{stage.title}</h3>
+                                <div className="flex items-center gap-2">
+                                    <h3 className={`text-sm font-semibold truncate ${stage.disabled ? 'text-neutral-500 line-through' : 'text-white'}`}>
+                                        {stage.title}
+                                    </h3>
+                                    {stage.disabled && (
+                                        <span className="text-[10px] font-bold text-neutral-600 bg-neutral-800 px-1.5 py-0.5 rounded border border-neutral-700 uppercase tracking-tighter">
+                                            Disabled
+                                        </span>
+                                    )}
+                                </div>
                                 {stage.duration_hint && (
                                     <p className="text-xs text-neutral-500 mt-0.5">{stage.duration_hint}</p>
                                 )}
-                                <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
-                                    {stage.prompt.slice(0, 120)}...
+                                <p className="text-xs text-neutral-400 mt-1 line-clamp-1 italic opacity-60">
+                                    {stage.prompt.slice(0, 100)}...
                                 </p>
                             </div>
-                            {/* Prompt length indicator */}
-                            <div className={`shrink-0 text-xs tabular-nums ${
-                                stage.prompt.length > 1800 ? 'text-amber-400' : 'text-neutral-600'
-                            }`}>
-                                {stage.prompt.length}c
+
+                            {/* Controls */}
+                            <div className="flex items-center gap-1 shrink-0 ml-2">
+                                <div className="flex flex-col gap-1 mr-2 border-r border-neutral-800 pr-2">
+                                    <button
+                                        onClick={() => handleMoveStage(i, 'up')}
+                                        disabled={i === 0}
+                                        className="p-1 text-neutral-500 hover:text-blue-400 disabled:opacity-20 transition-colors"
+                                    >
+                                        <ChevronUp size={14} />
+                                    </button>
+                                    <button
+                                        onClick={() => handleMoveStage(i, 'down')}
+                                        disabled={i === compiledStages.length - 1}
+                                        className="p-1 text-neutral-500 hover:text-blue-400 disabled:opacity-20 transition-colors"
+                                    >
+                                        <ChevronDown size={14} />
+                                    </button>
+                                </div>
+
+                                <button
+                                    onClick={() => handleToggleStage(i)}
+                                    title={stage.disabled ? "Enable Stage" : "Disable Stage"}
+                                    className={`p-2 rounded-lg transition-all ${
+                                        stage.disabled 
+                                            ? 'text-neutral-500 hover:text-green-400 bg-neutral-800' 
+                                            : 'text-neutral-400 hover:text-amber-400 hover:bg-neutral-700/50'
+                                    }`}
+                                >
+                                    {stage.disabled ? <Eye size={18} /> : <EyeOff size={18} />}
+                                </button>
                             </div>
                         </div>
                     ))}

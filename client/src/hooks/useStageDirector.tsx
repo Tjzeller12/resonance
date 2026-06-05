@@ -2,15 +2,29 @@ import { useState, useCallback, useMemo } from 'react';
 import type { SimulationStage, CompiledSimulation } from '../types/stagedSimulation';
 
 /**
- * Manages the active stage during a Hume EVI session.
- * Reads compiled stages from sessionStorage and handles stage transitions
- * triggered by the AI's `advance_stage` tool call.
+ * useStageDirector is the "Script Manager" for multi-part simulations.
+ * 
+ * DESIGN RATIONALE:
+ * Large language models perform better when they have focused instructions for a 
+ * single task. Instead of giving Hume one massive prompt for a 30-minute interview,
+ * we split it into stages (e.g. "Introductions", "Technical Deep Dive", "Closing").
+ * 
+ * This hook manages the logic of moving through those stages by "Hot-swapping" 
+ * the AI's instructions during the call.
+ * 
+ * @param scenarioId - The current scenario ID to load scripts for.
+ * @param sendSessionSettings - The function from useVoice to update EVI instructions.
+ * @returns {Object} { isStaged, stages, currentStage, stageIndex, totalStages, isLastStage, summary, advanceStage }
  */
 export const useStageDirector = (
     scenarioId: string,
     sendSessionSettings: (settings: Record<string, unknown>) => void,
 ) => {
-    // Read stages from sessionStorage synchronously on first render
+    /**
+     * STAGE LOADING:
+     * We load the compiled stages from sessionStorage. These were placed there 
+     * by the `usePreFlightCompiler` during the screen preceding the simulation.
+     */
     const initialData = useMemo(() => {
         const raw = typeof window !== 'undefined'
             ? sessionStorage.getItem(`stages_${scenarioId}`)
@@ -29,6 +43,7 @@ export const useStageDirector = (
         return null;
     }, [scenarioId]);
 
+    // Internal state to track progress through the script
     const [stages] = useState<SimulationStage[]>(initialData?.stages ?? []);
     const [summary] = useState<string>(initialData?.summary ?? '');
     const isStaged = stages.length > 0;
@@ -39,25 +54,30 @@ export const useStageDirector = (
     const isLastStage = stageIndex >= totalStages - 1;
 
     /**
-     * Returns the initial system prompt for stage 0.
-     * Called by useEviManager at connect time.
+     * getInitialPrompt returns the first stage's instructions.
+     * This is conventionally used during the initial connect() call to Hume.
      */
     const getInitialPrompt = useCallback((): string | null => {
         if (stages.length === 0) return null;
-        console.log(`[Director] Initial prompt: "${stages[0].title}" (${stages[0].prompt.length} chars)`);
         return stages[0].prompt;
     }, [stages]);
 
     /**
-     * Advances to the next stage by hot-swapping the systemPrompt
-     * via sendSessionSettings. Called when the AI triggers advance_stage.
+     * advanceStage: THE CORE TRANSITION LOGIC
+     * 
+     * This is called by the Parent component (Simulation.tsx) when it hears the AI 
+     * trigger the 'advance_stage' tool call.
+     * 
+     * It uses `sendSessionSettings` to tell the AI its new instructions.
+     * EVI handles this "Hot-swap" without dropping the connection or 
+     * losing the conversational history.
      */
     const advanceStage = useCallback(() => {
         const nextIndex = stageIndex + 1;
 
         if (nextIndex >= totalStages) {
             console.log('[Director] 🏁 All stages complete!');
-            // Send a final context to let the AI know we're wrapping up
+            // Send a final "Wrap-up" instruction
             sendSessionSettings({
                 type: 'session_settings',
                 context: {
@@ -71,10 +91,10 @@ export const useStageDirector = (
         const nextStage = stages[nextIndex];
         console.log(`[Director] Advancing to stage ${nextIndex + 1}/${totalStages}: "${nextStage.title}"`);
 
-        // Append explicit instruction for tool use
+        // We re-append the tool instruction to ensure EVI remembers it can advance.
         const promptWithTool = `${nextStage.prompt}\n\nIMPORTANT: Once the requirements for this stage are complete, use the 'advance_stage' tool call to move on to the next stage.`;
 
-        // Hot-swap the system prompt for the new stage
+        // UPDATE THE AI IN-REAL-TIME
         sendSessionSettings({
             type: 'session_settings',
             systemPrompt: promptWithTool,
@@ -85,7 +105,7 @@ export const useStageDirector = (
                 },
             } : {}),
         });
-
+ 
         setStageIndex(nextIndex);
     }, [stageIndex, totalStages, stages, sendSessionSettings]);
 

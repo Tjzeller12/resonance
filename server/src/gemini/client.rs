@@ -29,7 +29,7 @@ pub type GeminiStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 /// # Example (REST)
 /// ```ignore
 /// let result = GeminiClient::builder()
-///     .model("gemini-2.5-flash")
+///     .model("gemini-3.5-flash")
 ///     .temperature(0.3)
 ///     .json_response()
 ///     .build_rest()?
@@ -172,18 +172,22 @@ impl GeminiRestClient {
         // Try direct parse first, then try as Vec<T> and take the first element
         match serde_json::from_str::<T>(&sanitized) {
             Ok(parsed) => Ok(parsed),
-            Err(_) => {
+            Err(orig_err) => {
                 // Attempt to parse as a Vec<T> (Gemini sometimes wraps in an array)
                 match serde_json::from_str::<Vec<T>>(&sanitized) {
                     Ok(mut list) if !list.is_empty() => Ok(list.remove(0)),
-                    Ok(_) => Err(GeminiError::ParseError(
-                        "Gemini returned an empty array".to_string(),
-                    )),
-                    Err(e) => Err(GeminiError::ParseError(format!(
-                        "Failed to parse response: {}. Raw: {}",
-                        e,
-                        &sanitized[..sanitized.len().min(500)]
-                    ))),
+                    _ => {
+                        warn!(
+                            "[Gemini REST] JSON Deserialization failed: {}. Raw Response (first 2000 chars):\n{}",
+                            orig_err,
+                            &sanitized[..sanitized.len().min(2000)]
+                        );
+                        Err(GeminiError::ParseError(format!(
+                            "Failed to parse response: {}. Raw: {}",
+                            orig_err,
+                            &sanitized[..sanitized.len().min(1000)]
+                        )))
+                    }
                 }
             }
         }
@@ -211,6 +215,7 @@ impl GeminiRestClient {
                 },
                 temperature: self.temperature,
                 response_modalities: None,
+                max_output_tokens: Some(8192),
             },
             system_instruction: None,
         };
@@ -230,7 +235,10 @@ impl GeminiRestClient {
             prompt.len()
         );
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         let response = client
             .post(&url)
             .json(&request)
@@ -249,16 +257,28 @@ impl GeminiRestClient {
             GeminiError::InvalidResponse(format!("Failed to deserialize response: {}", e))
         })?;
 
-        let text = gemini_resp
+        let candidate = gemini_resp
             .candidates
             .as_ref()
             .and_then(|c| c.first())
-            .and_then(|c| c.content.parts.first())
+            .ok_or_else(|| GeminiError::InvalidResponse("No candidates returned".to_string()))?;
+
+        let finish_reason = candidate.finish_reason.clone().unwrap_or_else(|| "UNKNOWN".to_string());
+        
+        let text = candidate
+            .content
+            .parts
+            .first()
             .and_then(|p| p.text.as_ref())
             .ok_or_else(|| GeminiError::InvalidResponse("Empty response from Gemini".to_string()))?
             .clone();
 
-        info!("[Gemini REST] Got response ({} chars)", text.len());
+        info!("[Gemini REST] Got response ({} chars, finish_reason: {})", text.len(), finish_reason);
+        
+        if finish_reason == "MAX_TOKENS" {
+            warn!("[Gemini REST] Response truncated due to MAX_TOKENS limit!");
+        }
+        
         Ok(text)
     }
 }
@@ -383,6 +403,8 @@ pub fn parse_live_event(gemini_response: &str) -> Option<GeminiEvent> {
 /// Gemini sometimes wraps JSON in ```json ... ``` blocks even when asked for raw JSON.
 fn preprocess_json(raw: &str) -> String {
     let trimmed = raw.trim();
+    let mut content = trimmed.to_string();
+
     if trimmed.starts_with("```") {
         let lines: Vec<&str> = trimmed.lines().collect();
         if lines.len() >= 2 {
@@ -395,9 +417,78 @@ fn preprocess_json(raw: &str) -> String {
             } else {
                 lines.len()
             };
-            let content = lines[1..end_idx].join("\n");
-            return content.trim().to_string();
+            content = lines[1..end_idx].join("\n").trim().to_string();
         }
     }
-    trimmed.to_string()
+
+    // Escape literal newlines and tabs INSIDE json strings to prevent serde "control character" errors
+    let mut sanitized = String::with_capacity(content.len());
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for c in content.chars() {
+        if !escaped && c == '"' {
+            in_string = !in_string;
+            sanitized.push(c);
+        } else if in_string {
+            if c == '\n' {
+                sanitized.push_str("\\n");
+            } else if c == '\t' {
+                sanitized.push_str("\\t");
+            } else if c == '\r' {
+                sanitized.push_str("\\r");
+            } else {
+                sanitized.push(c);
+            }
+            // Update escaped state
+            if c == '\\' {
+                escaped = !escaped;
+            } else {
+                escaped = false;
+            }
+        } else {
+            sanitized.push(c);
+            escaped = false;
+        }
+    }
+
+    // --- JSON AUTO-REPAIR FOR INCOMPLETE OUTPUT ---
+    let mut in_str = false;
+    let mut is_escaped = false;
+    let mut bracket_stack = Vec::new();
+
+    for c in sanitized.chars() {
+        if !is_escaped && c == '"' {
+            in_str = !in_str;
+        } else if !in_str {
+            match c {
+                '{' => bracket_stack.push('}'),
+                '[' => bracket_stack.push(']'),
+                '}' | ']' => {
+                    bracket_stack.pop();
+                }
+                _ => {}
+            }
+        }
+        is_escaped = if c == '\\' { !is_escaped } else { false };
+    }
+
+    if in_str {
+        sanitized.push('"');
+    }
+
+    let trimmed_end = sanitized.trim_end();
+    if trimmed_end.ends_with(',') {
+        sanitized = trimmed_end[..trimmed_end.len() - 1].to_string();
+    } else if trimmed_end.ends_with(':') {
+        sanitized.push_str("null");
+    } else if !trimmed_end.ends_with('}') && !trimmed_end.ends_with(']') && !trimmed_end.ends_with('"') && !trimmed_end.ends_with("true") && !trimmed_end.ends_with("false") && !trimmed_end.ends_with("null") {
+        // if it ends with partial unquoted text like a number, it's usually fine
+    }
+
+    while let Some(c) = bracket_stack.pop() {
+        sanitized.push(c);
+    }
+
+    sanitized
 }

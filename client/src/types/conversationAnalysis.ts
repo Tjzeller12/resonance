@@ -123,6 +123,8 @@ export interface Highlight {
     timestamp: number;
     /** Why this moment was notable */
     explanation: string;
+    /** Optional recommendation of what to say or do instead */
+    suggestion?: string;
 }
 
 export interface SuggestedTraining {

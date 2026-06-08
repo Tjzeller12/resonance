@@ -61,9 +61,9 @@ pub async fn compile_handler(Json(payload): Json<CompileRequest>) -> impl IntoRe
     info!("[Compiler] Sending to Gemini ({} chars)", full_prompt.len());
 
     // Use the unified Gemini client
-    let result = async {
+    let result: Result<CompiledSimulation, GeminiError> = async {
         GeminiClient::builder()
-            .model("gemini-2.5-flash")
+            .model("gemini-3.5-flash")
             .temperature(0.3)
             .json_response()
             .build_rest()?

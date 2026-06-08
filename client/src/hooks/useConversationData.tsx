@@ -82,6 +82,9 @@ export function useConversationData(
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [analysisError, setAnalysisError] = useState<string | null>(null);
 
+    // ── Session Duration (state, safe to read during render) ──
+    const [sessionDurationMs, setSessionDurationMs] = useState(0);
+
     /**
      * markSessionStart: Call when the session begins.
      * Records the start timestamp and generates a session ID.
@@ -105,10 +108,12 @@ export function useConversationData(
      */
     const markSessionEnd = useCallback(() => {
         sessionEndedAt.current = Date.now();
+        const duration = sessionEndedAt.current - sessionStartedAt.current;
+        setSessionDurationMs(duration);
         console.log(
             '%c[ConversationData] 🏁 Session ended',
             'color: #3b82f6; font-weight: bold;',
-            `${((sessionEndedAt.current - sessionStartedAt.current) / 1000).toFixed(1)}s`
+            `${(duration / 1000).toFixed(1)}s`
         );
     }, []);
 
@@ -309,6 +314,17 @@ export function useConversationData(
         stageTimeline.current = [];
         setAnalysisResult(null);
         setAnalysisError(null);
+        setSessionDurationMs(0);
+    }, []);
+
+    /**
+     * clearAnalysis: Resets only the analysis state without touching
+     * session accumulators. Used by the "Try Again" flow to return
+     * to the simulation-ready view.
+     */
+    const clearAnalysis = useCallback(() => {
+        setAnalysisResult(null);
+        setAnalysisError(null);
     }, []);
 
     return {
@@ -321,11 +337,15 @@ export function useConversationData(
         getPayload,
         submitForAnalysis,
         flush,
+        clearAnalysis,
 
         // State
         analysisResult,
         isAnalyzing,
         analysisError,
+
+        // Session metadata (for PostMatchReport)
+        sessionDurationMs,
     };
 }
 

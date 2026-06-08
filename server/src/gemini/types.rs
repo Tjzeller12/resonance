@@ -69,6 +69,8 @@ pub struct GenerationConfig {
     pub temperature: f32,
     #[serde(rename = "responseModalities", skip_serializing_if = "Option::is_none")]
     pub response_modalities: Option<Vec<String>>,
+    #[serde(rename = "maxOutputTokens", skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
 }
 
 /// Top-level response from generateContent.
@@ -81,6 +83,8 @@ pub struct RestResponse {
 #[derive(Deserialize)]
 pub struct Candidate {
     pub content: CandidateContent,
+    #[serde(rename = "finishReason", skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
 }
 
 /// The content block within a candidate.

@@ -250,8 +250,15 @@ function buildSentenceAnalytics(
     // --- Aggregate metrics ---
     const firstWord = words[0].word;
     const lastWord = words[words.length - 1].word;
-    const durationMinutes = (lastWord.end - firstWord.start) / 60;
-    const trueWpm = durationMinutes > 0 ? Math.round(words.length / durationMinutes) : 0;
+    // Add 0.4s of padding to account for natural pauses between sentences.
+    // This prevents 4-word sentences from registering as 250+ WPM due to tight word boundaries.
+    const durationMinutes = (lastWord.end - firstWord.start + 0.4) / 60;
+    
+    // Require at least 4 words for a meaningful WPM, and cap at 250 to prevent anomalies
+    let trueWpm = 0;
+    if (words.length >= 4 && durationMinutes > 0) {
+        trueWpm = Math.min(Math.round(words.length / durationMinutes), 250);
+    }
 
     const sentenceStartMs = epoch + firstWord.start * 1000;
     const sentenceEndMs = epoch + lastWord.end * 1000;
@@ -299,11 +306,15 @@ function buildSentenceAnalytics(
     tags.push(...calculateVolumeTags(fullSlice));
 
     // 3. Pace (from Deepgram ground-truth WPM)
-    if (trueWpm > 190) tags.push(`Pace is extremely fast (${trueWpm} WPM)`);
-    else if (trueWpm > 160) tags.push(`Pace is fast (${trueWpm} WPM)`);
-    else if (trueWpm > 120) tags.push(`Pace is medium (${trueWpm} WPM)`);
-    else if (trueWpm > 80) tags.push(`Pace is slow (${trueWpm} WPM)`);
-    else if (trueWpm > 0) tags.push(`Pace is very slow (${trueWpm} WPM)`);
+    // Only tag pace on longer sentences (≥ 8 words). Short conversational bursts are inherently 
+    // fast and result in inflated WPM calculations that lead to false penalties.
+    if (words.length >= 8) {
+        if (trueWpm > 190) tags.push(`Pace is extremely fast (${trueWpm} WPM)`);
+        else if (trueWpm > 160) tags.push(`Pace is fast (${trueWpm} WPM)`);
+        else if (trueWpm > 120) tags.push(`Pace is medium (${trueWpm} WPM)`);
+        else if (trueWpm > 80) tags.push(`Pace is slow (${trueWpm} WPM)`);
+        else if (trueWpm > 0) tags.push(`Pace is very slow (${trueWpm} WPM)`);
+    }
 
     // 4. Clarity
     if (clarityScore < 0.70) {

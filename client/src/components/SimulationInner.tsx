@@ -1,15 +1,16 @@
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import Card from './common/Card';
-import EviConvoPanel from './eviConvoPanel';
-import SensorMetricsPanel from './SensorMetricsPanel';
-import SimControlPanel from './SimControlPanel';
-import AnalyticsDebugPanel from './AnalyticsDebugPanel';
+import { useConversationData } from '../hooks/useConversationData';
 import { useEviManager } from '../hooks/useEviManager';
 import { useSimulationSession } from '../hooks/useSimulationSession';
 import { useStageDirector } from '../hooks/useStageDirector';
 import { useVoiceAnalyticsEngine } from '../hooks/useVoiceAnalyticsEngine';
-import { useConversationData } from '../hooks/useConversationData';
+import AnalyticsDebugPanel from './AnalyticsDebugPanel';
+import Card from './common/Card';
+import EviConvoPanel from './eviConvoPanel';
+import PostMatchReport from './postmatch/PostMatchReport';
+import SensorMetricsPanel from './SensorMetricsPanel';
+import SimControlPanel from './SimControlPanel';
 
 
 interface SimulationInnerProps {
@@ -54,9 +55,12 @@ const SimulationInner = ({ advanceStageRef }: SimulationInnerProps) => {
         markSessionEnd,
         recordStageTransition,
         submitForAnalysis,
+        clearAnalysis,
+        flush,
         analysisResult,
         isAnalyzing,
         analysisError,
+        sessionDurationMs,
     } = useConversationData(
         scenarioId,
         messages,
@@ -149,6 +153,28 @@ const SimulationInner = ({ advanceStageRef }: SimulationInnerProps) => {
         }
     };
 
+    const handleTryAgain = () => {
+        clearAnalysis();
+        flush();
+    };
+
+    // ── Post-Match Report: Full-screen takeover when analysis is complete ──
+    if (analysisResult && !isStreaming) {
+        return (
+            <>
+                <PostMatchReport
+                    result={analysisResult}
+                    scenarioId={scenarioId}
+                    sessionDurationMs={sessionDurationMs}
+                    onTryAgain={handleTryAgain}
+                />
+                {/* Debug Dashboard still available */}
+                <AnalyticsDebugPanel traces={analyticsTraces} />
+            </>
+        );
+    }
+
+    // ── Active Simulation View ──
     return (
         <div className="min-h-screen bg-neutral-900 text-white flex items-center justify-center p-4 sm:p-6">
             <Card title="Simulation" className="w-full max-w-screen-2xl flex flex-col p-4 shadow-2xl">
@@ -196,36 +222,6 @@ const SimulationInner = ({ advanceStageRef }: SimulationInnerProps) => {
                         </div>
                     )}
                 </div>
-
-                {/* Post-Match Results Preview */}
-                {analysisResult && (
-                    <div className="w-full mt-4 p-4 bg-neutral-800/50 border border-emerald-500/20 rounded-xl">
-                        <div className="flex items-center justify-between mb-3">
-                            <div className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
-                                📊 Post-Match Report
-                            </div>
-                            <div className="text-2xl font-bold text-white">
-                                {analysisResult.total_xp} <span className="text-sm text-emerald-400">XP</span>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 mb-3">
-                            {analysisResult.category_scores.map((cat) => (
-                                <div key={cat.category} className="bg-neutral-900/50 rounded-lg p-2 text-center">
-                                    <div className="text-[10px] text-neutral-400 uppercase tracking-wider truncate">{cat.category}</div>
-                                    <div className={`text-lg font-bold mt-0.5 ${
-                                        cat.score >= 80 ? 'text-emerald-400' :
-                                        cat.score >= 60 ? 'text-yellow-400' : 'text-red-400'
-                                    }`}>
-                                        {cat.score}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                        <p className="text-xs text-neutral-400 leading-relaxed line-clamp-3">
-                            {analysisResult.overall_feedback}
-                        </p>
-                    </div>
-                )}
 
                 {/* Analysis Error */}
                 {analysisError && (

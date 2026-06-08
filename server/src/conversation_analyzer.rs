@@ -130,17 +130,22 @@ pub struct StageEntry {
 // ─── Response Types ─────────────────────────────────────────────────────────
 
 /// The structured analysis returned to the client.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct AnalysisResult {
     /// Per-category scores with justifications
+    #[serde(default)]
     pub category_scores: Vec<CategoryScore>,
     /// Weighted total XP earned
+    #[serde(default)]
     pub total_xp: u32,
     /// Best and worst moments from the session
+    #[serde(default)]
     pub highlights: Vec<Highlight>,
     /// Recommended next training modules
+    #[serde(default)]
     pub suggested_training: Vec<SuggestedTraining>,
     /// Narrative summary of performance
+    #[serde(default)]
     pub overall_feedback: String,
 }
 
@@ -163,9 +168,13 @@ pub struct Highlight {
     /// The moment's transcript snippet
     pub transcript_snippet: String,
     /// Unix ms timestamp of the moment
+    #[serde(default)]
     pub timestamp: u64,
     /// Why this moment was notable
     pub explanation: String,
+    /// Optional suggestion for improvement (e.g. what to say instead)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -215,7 +224,7 @@ pub async fn analyze_handler(Json(payload): Json<AnalyzeRequest>) -> impl IntoRe
     // 3. Call Gemini
     let result = async {
         GeminiClient::builder()
-            .model("gemini-2.5-flash")
+            .model("gemini-2.5-pro")
             .temperature(0.4)
             .json_response()
             .system_instruction(ANALYSIS_SYSTEM_INSTRUCTION)
@@ -273,17 +282,10 @@ Scoring rules:
 - Use the provided rubric categories and weights exactly.
 - total_xp = round(sum(category_score * weight * 100)) for each category.
 - Justify every score with specific evidence from the transcript and analytics data.
-- Highlights should reference actual moments from the conversation with timestamps.
-- suggested_training should map to real module IDs from the platform.
-
-Available training modules for suggestions:
-- "downward_inflection_technique_training" — Downward Inflection Technique
-- "pitch_variance_training" — Pitch Variance Training
-- "pace_and_volume_variance_training" — Pace & Volume Variance Training
-- "speaking_intelligence_training" — Speaking Intelligence
-- "star_interview_training" — STAR Interview Method
-- "masculine_frame_training" — Masculine Frame Training
-- "playground_training" — Free Practice Playground"#;
+- Highlights should reference actual moments from the conversation with timestamps ONLY in the designated JSON `timestamp` field.
+- NEVER use raw timestamps (like `t=1780800754490ms`) in the text of your justifications, explanations, or overall feedback. Reference moments using natural language (e.g., "When you asked about...").
+- For highlights (especially weaknesses), your `suggestion` MUST be a direct rewrite of the user's snippet. Give them the exact phrasing of what they should have said instead to improve the situation. Do NOT use emojis. Keep it professional.
+- suggested_training should map to real module IDs from the platform."#;
 
 fn build_analysis_prompt(
     payload: &AnalyzeRequest,
@@ -388,6 +390,16 @@ Total Duration: {}ms
 === FULL CONVERSATION WITH ANALYTICS ===
 {}
 
+=== AVAILABLE TRAINING MODULES ===
+When recommending training, you MUST choose from the following valid module_ids:
+- "downward_inflection_technique_training": Downward Inflection Training
+- "pitch_variance_training": Pitch Variance Training
+- "pace_and_volume_variance_training": Pace & Volume Training
+- "speaking_intelligence_training": Speaking Intelligence
+- "star_interview_training": STAR Method Training
+- "masculine_frame_training": Masculine Frame Training
+- "playground_training": Playground
+
 === OUTPUT FORMAT ===
 Return a JSON object with this exact structure:
 {{
@@ -396,10 +408,10 @@ Return a JSON object with this exact structure:
   ],
   "total_xp": <weighted sum>,
   "highlights": [
-    {{ "highlight_type": "strength|weakness", "transcript_snippet": "<exact quote>", "timestamp": <unix_ms>, "explanation": "<why notable>" }}
+    {{ "highlight_type": "strength|weakness", "transcript_snippet": "<exact quote>", "timestamp": <unix_ms>, "explanation": "<why notable>", "suggestion": "<optional for strengths; required for weaknesses: direct rewrite of snippet providing exact phrasing of what they should have said instead. Do NOT use emojis.>" }}
   ],
   "suggested_training": [
-    {{ "module_id": "<scenario_id>", "module_name": "<display name>", "reason": "<specific weakness to address>" }}
+    {{ "module_id": "<must be from AVAILABLE TRAINING MODULES list>", "module_name": "<display name>", "reason": "<specific weakness to address>" }}
   ],
   "overall_feedback": "<2-3 paragraph narrative summary>"
 }}"#,

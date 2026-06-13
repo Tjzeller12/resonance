@@ -96,9 +96,9 @@ async fn handle_socket(mut socket: WebSocket) {
     // Channel for receiving tag batches from Gemini Live reader task
     let (tags_tx, mut tags_rx) = mpsc::unbounded_channel::<LiveTags>();
 
-    // TODO: The scenario_id should theoretically come from the frontend via a setup message.
-    // For now, we default to "tech_interview" just to bootstrap the system prompt.
-    let system_instruction = gemini_msg::get_vocal_engine_prompt("tech_interview");
+    // The vocal engine is scenario-agnostic — it only analyzes delivery.
+    // Scenario-specific judgment happens later in the post-match analyzer.
+    let system_instruction = gemini_msg::get_vocal_engine_prompt();
 
     let mut was_speaking = false;
 

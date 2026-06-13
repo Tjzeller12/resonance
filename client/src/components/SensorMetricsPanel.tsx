@@ -1,11 +1,10 @@
 import { type SensorMetrics } from '../hooks/useSensorMetrics';
-import { MetricGraph } from './metricGrpah';
-import { MetricMeter } from './metricMeter';
+import { MetricGraph } from './MetricGraph';
+import { MetricMeter } from './MetricMeter';
 
 interface SensorMetricsPanelProps {
     metrics: SensorMetrics | null;
     pitchHistory: number[];
-    wpm?: number;
 }
 
 /**
@@ -14,7 +13,7 @@ interface SensorMetricsPanelProps {
  * Takes the raw metrics passed down from the session hook and distributes
  * them to the appropriate visualizations (Meters, Graphs, and Text).
  */
-export default function SensorMetricsPanel({ metrics, pitchHistory, wpm }: SensorMetricsPanelProps) {
+export default function SensorMetricsPanel({ metrics, pitchHistory }: SensorMetricsPanelProps) {
     if (!metrics) return null;
 
     // Simple visual cue: Green for high dynamic range (good), yellow/red for monotone.
@@ -30,11 +29,6 @@ export default function SensorMetricsPanel({ metrics, pitchHistory, wpm }: Senso
                     <span className={`text-sm font-bold tracking-wide ${metrics.is_speaking ? 'text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.8)]' : 'text-neutral-500'}`}>
                         {metrics.is_speaking ? 'Speaking...' : 'Listening...'}
                     </span>
-                </div>
-                
-                <div className="flex justify-between items-center border-t border-white/10 pt-2">
-                    <span className="text-neutral-400 text-xs font-semibold uppercase tracking-wider">Pace (WPM)</span>
-                    <span className="text-sm font-bold tracking-wide text-white">{wpm !== undefined ? wpm : 0}</span>
                 </div>
             </div>
         </div>

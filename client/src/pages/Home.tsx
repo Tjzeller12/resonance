@@ -3,10 +3,28 @@ import { useNavigate } from "react-router-dom";
 import Card from "../components/common/Card";
 import ContextInjectionPanel from "../components/ContextInjectionPanel";
 import StagedIntakePanel from "../components/StagedIntakePanel";
-import { buildDatingPrompt } from "../data/datingPrompts";
+import { buildDatingPrompt, DATING_SCENARIOS } from "../data/datingPrompts";
 import { buildTrainingPrompt } from "../data/trainingPrompts";
-import { CATEGORIES, DATING_CONTEXT_CONFIG } from "../data/homeConfigs";
+import { CATEGORIES } from "../data/homeConfigs";
 import type { ScenarioItem } from "../data/homeConfigs";
+import { saveContext, saveCustomBackground, saveStages } from "../utils/sessionStore";
+
+type LaunchMode = "training" | "practice";
+
+/** Wraps a single prompt as a one-stage simulation for the stage director. */
+function singleStageSimulation(summary: string, title: string, prompt: string) {
+  return {
+    summary,
+    stages: [
+      {
+        id: "stage_1",
+        title,
+        prompt,
+        duration_hint: "Continuous",
+      },
+    ],
+  };
+}
 
 export default function Home() {
   const navigate = useNavigate();
@@ -15,11 +33,11 @@ export default function Home() {
   );
   const [pendingContextScenario, setPendingContextScenario] = useState<{
     scenario: ScenarioItem;
-    mode: "training" | "practice";
+    mode: LaunchMode;
   } | null>(null);
   const [pendingStagedScenario, setPendingStagedScenario] = useState<{
     scenario: ScenarioItem;
-    mode: "training" | "practice";
+    mode: LaunchMode;
   } | null>(null);
 
   const handleSelectCategory = (categoryId: string) => {
@@ -30,24 +48,18 @@ export default function Home() {
     setSelectedCategoryId(null);
   };
 
-  const handleLaunchSim = (
-    scenario: ScenarioItem,
-    mode: "training" | "practice",
-  ) => {
+  const handleLaunchSim = (scenario: ScenarioItem, mode: LaunchMode) => {
     if (mode === "training") {
-      const prompt = buildTrainingPrompt(scenario.id);
-      
-      sessionStorage.setItem(`stages_${scenario.id}`, JSON.stringify({
-          summary: `Skill Training: ${scenario.label}`,
-          stages: [{
-               id: 'stage_1',
-               title: 'Training Mode',
-               prompt: prompt,
-               duration_hint: 'Continuous'
-          }]
-      }));
-      sessionStorage.setItem(`staged_simulation_bg_${scenario.id}`, scenario.image);
-      
+      saveStages(
+        scenario.id,
+        singleStageSimulation(
+          `Skill Training: ${scenario.label}`,
+          "Training Mode",
+          buildTrainingPrompt(scenario.id),
+        ),
+      );
+      saveCustomBackground(scenario.id, scenario.image);
+
       void navigate(`/simulation?scenarioId=${scenario.id}&mode=${mode}`);
       return;
     }
@@ -64,34 +76,25 @@ export default function Home() {
   const handleContextLaunch = (context: Record<string, string>) => {
     if (!pendingContextScenario) return;
 
-    if (pendingContextScenario.scenario.contextConfig === DATING_CONTEXT_CONFIG) {
-        const scenarioId = pendingContextScenario.scenario.id;
-        const prompt = buildDatingPrompt(context, scenarioId);
-        
-        sessionStorage.setItem(`stages_${scenarioId}`, JSON.stringify({
-            summary: 'A continuous dating roleplay scenario.',
-            stages: [{
-                 id: 'stage_1',
-                 title: 'Main Date',
-                 prompt: prompt,
-                 duration_hint: 'Continuous'
-            }]
-        }));
-        
-        sessionStorage.setItem(`staged_simulation_bg_${scenarioId}`, pendingContextScenario.scenario.image);
-        
-        void navigate(`/simulation?scenarioId=${scenarioId}&mode=${pendingContextScenario.mode}`);
-        setPendingContextScenario(null);
-        return;
+    const { scenario, mode } = pendingContextScenario;
+
+    // Dating scenarios compile their context into a full roleplay prompt;
+    // everything else passes the raw context through to EVI.
+    if (scenario.id in DATING_SCENARIOS) {
+      saveStages(
+        scenario.id,
+        singleStageSimulation(
+          "A continuous dating roleplay scenario.",
+          "Main Date",
+          buildDatingPrompt(context, scenario.id),
+        ),
+      );
+      saveCustomBackground(scenario.id, scenario.image);
+    } else {
+      saveContext(scenario.id, context);
     }
 
-    sessionStorage.setItem(
-      `context_${pendingContextScenario.scenario.id}`,
-      JSON.stringify(context),
-    );
-    void navigate(
-      `/simulation?scenarioId=${pendingContextScenario.scenario.id}&mode=${pendingContextScenario.mode}`,
-    );
+    void navigate(`/simulation?scenarioId=${scenario.id}&mode=${mode}`);
     setPendingContextScenario(null);
   };
 
@@ -189,153 +192,18 @@ export default function Home() {
       {/* View State: Detail / Sub-selection */}
       {selectedCategory && (
         <div className="max-w-5xl w-full grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Training Column */}
-          <Card className="bg-neutral-900/50 border border-neutral-800 flex flex-col gap-4">
-            <div className="border-b border-neutral-700 pb-4 mb-2 flex items-center gap-2">
-              <span className="bg-blue-500/20 text-blue-400 p-1.5 rounded-md">
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
-                  />
-                </svg>
-              </span>
-              <h2 className="text-2xl font-bold text-neutral-100">
-                Training Scenarios
-              </h2>
-            </div>
-
-            {selectedCategory.trainingOptions.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center p-8 border border-dashed border-neutral-700 rounded-xl bg-neutral-800/30 text-neutral-500 italic">
-                More training modules coming soon.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {selectedCategory.trainingOptions.map((option) => (
-                  <div
-                    key={option.id}
-                    onClick={() => handleLaunchSim(option, "training")}
-                    className="group relative overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800 hover:border-blue-500/50 transition-colors cursor-pointer flex items-center p-3 gap-4"
-                  >
-                    <div className="w-20 h-20 rounded-lg overflow-hidden shrink-0">
-                      <img
-                        src={option.image}
-                        alt={option.label}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-bold text-white group-hover:text-blue-400 transition-colors">
-                        {option.label}
-                      </h3>
-                      <p className="text-sm text-neutral-400 mt-1">
-                        Guided simulation to boost specific skills.
-                      </p>
-                    </div>
-                    <div className="shrink-0 p-2 text-neutral-500 group-hover:text-blue-400 transition-colors">
-                      <svg
-                        className="w-6 h-6"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M14 5l7 7m0 0l-7 7m7-7H3"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-
-          {/* Practice Column */}
-          <Card className="bg-neutral-900/50 border border-neutral-800 flex flex-col gap-4">
-            <div className="border-b border-neutral-700 pb-4 mb-2 flex items-center gap-2">
-              <span className="bg-emerald-500/20 text-emerald-400 p-1.5 rounded-md">
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-              </span>
-              <h2 className="text-2xl font-bold text-neutral-100">
-                Practice Scenarios
-              </h2>
-            </div>
-
-            {selectedCategory.practiceOptions.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center p-8 border border-dashed border-neutral-700 rounded-xl bg-neutral-800/30 text-neutral-500 italic">
-                More practice modules coming soon.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {selectedCategory.practiceOptions.map((option) => (
-                  <div
-                    key={option.id}
-                    onClick={() => handleLaunchSim(option, "practice")}
-                    className="group relative overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800 hover:border-emerald-500/50 transition-colors cursor-pointer flex items-center p-3 gap-4"
-                  >
-                    <div className="w-20 h-20 rounded-lg overflow-hidden shrink-0">
-                      <img
-                        src={option.image}
-                        alt={option.label}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-bold text-white group-hover:text-emerald-400 transition-colors">
-                        {option.label}
-                      </h3>
-                      <p className="text-sm text-neutral-400 mt-1">
-                        Open-ended interaction for freeform practice.
-                      </p>
-                    </div>
-                    <div className="shrink-0 p-2 text-neutral-500 group-hover:text-emerald-400 transition-colors">
-                      <svg
-                        className="w-6 h-6"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M14 5l7 7m0 0l-7 7m7-7H3"
-                        />
-                      </svg>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
+          <ScenarioColumn
+            title="Training Scenarios"
+            mode="training"
+            options={selectedCategory.trainingOptions}
+            onSelect={handleLaunchSim}
+          />
+          <ScenarioColumn
+            title="Practice Scenarios"
+            mode="practice"
+            options={selectedCategory.practiceOptions}
+            onSelect={handleLaunchSim}
+          />
         </div>
       )}
 
@@ -367,5 +235,112 @@ export default function Home() {
         />
       )}
     </div>
+  );
+}
+
+// ─── Scenario Columns ────────────────────────────────────────────────────────
+
+/** Per-mode presentation: accent colors, header icon, and row description. */
+const COLUMN_STYLES: Record<
+  LaunchMode,
+  {
+    iconWrap: string;
+    rowHoverBorder: string;
+    labelHover: string;
+    arrowHover: string;
+    description: string;
+    emptyText: string;
+    iconPaths: string[];
+  }
+> = {
+  training: {
+    iconWrap: "bg-blue-500/20 text-blue-400",
+    rowHoverBorder: "hover:border-blue-500/50",
+    labelHover: "group-hover:text-blue-400",
+    arrowHover: "group-hover:text-blue-400",
+    description: "Guided simulation to boost specific skills.",
+    emptyText: "More training modules coming soon.",
+    iconPaths: [
+      "M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z",
+    ],
+  },
+  practice: {
+    iconWrap: "bg-emerald-500/20 text-emerald-400",
+    rowHoverBorder: "hover:border-emerald-500/50",
+    labelHover: "group-hover:text-emerald-400",
+    arrowHover: "group-hover:text-emerald-400",
+    description: "Open-ended interaction for freeform practice.",
+    emptyText: "More practice modules coming soon.",
+    iconPaths: [
+      "M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z",
+      "M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+    ],
+  },
+};
+
+interface ScenarioColumnProps {
+  title: string;
+  mode: LaunchMode;
+  options: ScenarioItem[];
+  onSelect: (scenario: ScenarioItem, mode: LaunchMode) => void;
+}
+
+/** One column of launchable scenarios (training or practice). */
+function ScenarioColumn({ title, mode, options, onSelect }: ScenarioColumnProps) {
+  const style = COLUMN_STYLES[mode];
+
+  return (
+    <Card className="bg-neutral-900/50 border border-neutral-800 flex flex-col gap-4">
+      <div className="border-b border-neutral-700 pb-4 mb-2 flex items-center gap-2">
+        <span className={`${style.iconWrap} p-1.5 rounded-md`}>
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            {style.iconPaths.map((d) => (
+              <path key={d} strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={d} />
+            ))}
+          </svg>
+        </span>
+        <h2 className="text-2xl font-bold text-neutral-100">{title}</h2>
+      </div>
+
+      {options.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center p-8 border border-dashed border-neutral-700 rounded-xl bg-neutral-800/30 text-neutral-500 italic">
+          {style.emptyText}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {options.map((option) => (
+            <div
+              key={option.id}
+              onClick={() => onSelect(option, mode)}
+              className={`group relative overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800 ${style.rowHoverBorder} transition-colors cursor-pointer flex items-center p-3 gap-4`}
+            >
+              <div className="w-20 h-20 rounded-lg overflow-hidden shrink-0">
+                <img
+                  src={option.image}
+                  alt={option.label}
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                />
+              </div>
+              <div className="flex-1">
+                <h3 className={`font-bold text-white ${style.labelHover} transition-colors`}>
+                  {option.label}
+                </h3>
+                <p className="text-sm text-neutral-400 mt-1">{style.description}</p>
+              </div>
+              <div className={`shrink-0 p-2 text-neutral-500 ${style.arrowHover} transition-colors`}>
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M14 5l7 7m0 0l-7 7m7-7H3"
+                  />
+                </svg>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }

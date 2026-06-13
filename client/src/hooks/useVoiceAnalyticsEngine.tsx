@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { calculatePitchRange, calculatePitchTrend, calculateVolumeTags } from '../utils/audioAnalysis';
-import type { SensorMetrics, WordBatch, WordData } from './useSensorMetrics';
+import type { LiveTags, SensorMetrics } from './useSensorMetrics';
 
 // ============================================================
 //  DATA TYPES
@@ -68,40 +67,27 @@ export interface SentenceAnalytics {
 export type TurnAnalytics = SentenceAnalytics;
 
 // ============================================================
-//  CONSTANTS
-// ============================================================
-
-/** Confidence below this flags a word as "mumbled" */
-const CLARITY_THRESHOLD = 0.75;
-
-/** If more than this ratio of words are mumbled, the whole sentence is "unclear" */
-const MUMBLE_RATIO_THRESHOLD = 0.20;
-
-// ============================================================
 //  HOOK
 // ============================================================
 
 /**
- * useVoiceAnalyticsEngine — Word-Level Sensor Fusion
+ * useVoiceAnalyticsEngine — converts real-time signals into per-sentence analytics.
  *
  * Architecture:
  * 1. Sensor buffer collects pitch/volume every ~16ms with system timestamps.
- * 2. Deepgram streaming sends WordBatch events with per-word audio timestamps.
- * 3. When Deepgram detects a sentence boundary (speech_final), this engine:
- *    - Maps each word to its sensor data using the stream epoch.
- *    - Calculates WPM from word timestamps.
- *    - Generates tags for pitch, volume, pace, and clarity.
+ * 2. Gemini Live emits qualitative delivery tags whenever the user pauses
+ *    or finishes a thought.
+ * 3. Each new tag batch is recorded as a SentenceAnalytics trace and surfaced
+ *    in `preliminaryTags` for the live HUD.
  *
- * @param messages   - Hume EVI messages (used for prosody only)
  * @param sensorMetrics - Real-time metrics from useSensorMetrics
  * @param isStreaming - Whether the session is active
- * @param wordBatches - Streaming word batches from Deepgram
+ * @param liveTags - Streaming tag batches from Gemini Live
  */
 export function useVoiceAnalyticsEngine(
-    messages: unknown[],
     sensorMetrics: SensorMetrics | null,
     isStreaming: boolean,
-    wordBatches: WordBatch[]
+    liveTags: LiveTags[]
 ) {
     // --- Sensor buffer: pitch/volume with system timestamps ---
     const sensorBuffer = useRef<{ volume: number; pitch: number; timestamp: number }[]>([]);
@@ -110,11 +96,8 @@ export function useVoiceAnalyticsEngine(
     const [analyticsTraces, setAnalyticsTraces] = useState<SentenceAnalytics[]>([]);
     const [preliminaryTags, setPreliminaryTags] = useState<string[]>([]);
 
-    // Track how many word batches we've processed to avoid re-processing
-    const processedBatchCount = useRef(0);
-
-    // Accumulate words across batches until a sentence boundary (punctuation) is detected
-    const pendingWords = useRef<{ word: WordData; epoch: number }[]>([]);
+    // Track how many tag batches we've processed to avoid re-processing
+    const processedTagCount = useRef(0);
 
     // ========================================================
     //  EFFECT: Reset on session start/stop
@@ -122,8 +105,7 @@ export function useVoiceAnalyticsEngine(
     useEffect(() => {
         if (!isStreaming) {
             sensorBuffer.current = [];
-            processedBatchCount.current = 0;
-            pendingWords.current = [];
+            processedTagCount.current = 0;
             queueMicrotask(() => {
                 setAnalyticsTraces([]);
                 setPreliminaryTags([]);
@@ -149,196 +131,61 @@ export function useVoiceAnalyticsEngine(
     }, [sensorMetrics, isStreaming]);
 
     // ========================================================
-    //  EFFECT: Process new word batches → sentence analytics
+    //  EFFECT: Process new Gemini Live Tags
     // ========================================================
     useEffect(() => {
-        if (wordBatches.length <= processedBatchCount.current) return;
+        if (liveTags.length <= processedTagCount.current) return;
 
-        // Process only new batches
-        const newBatches = wordBatches.slice(processedBatchCount.current);
-        processedBatchCount.current = wordBatches.length;
+        const newTags = liveTags.slice(processedTagCount.current);
+        processedTagCount.current = liveTags.length;
 
-        const completedSentences: SentenceAnalytics[] = [];
+        const now = Date.now();
+        const newAnalytics: SentenceAnalytics[] = [];
 
-        for (const batch of newBatches) {
-            for (const w of batch.words) {
-                pendingWords.current.push({ word: w, epoch: batch.stream_epoch_ms });
-            }
+        for (const tagBatch of newTags) {
+            if (tagBatch.tags.length === 0) continue;
 
-            // Sentence boundary = transcript ends with . ? or !
-            // Deepgram's smart_format puts punctuation accurately,
-            // so we trust it instead of speech_final (which fires on any pause).
-            const trimmed = batch.transcript.trim();
-            const lastChar = trimmed[trimmed.length - 1];
-            const isSentenceEnd = lastChar === '.' || lastChar === '?' || lastChar === '!';
-
-            if (isSentenceEnd && pendingWords.current.length > 0) {
-                const sentence = buildSentenceAnalytics(
-                    [...pendingWords.current],
-                    sensorBuffer.current
-                );
-                if (sentence) {
-                    completedSentences.push(sentence);
-
-                    queueMicrotask(() => {
-                        setPreliminaryTags(sentence.tags);
-                    });
-
-                    console.log(
-                        '%c[VoiceAnalytics] ✅ SENTENCE',
-                        'color: #10b981; font-weight: bold;',
-                        `"${sentence.transcript}" | ${sentence.debug.trueWpm} WPM | ${sentence.tags.join(' | ')}`
-                    );
+            const analytics: SentenceAnalytics = {
+                timestamp: now,
+                transcript: "[Gemini Live Tag Event]",
+                tags: tagBatch.tags,
+                wordMetrics: [],
+                debug: {
+                    sliceSampleCount: 0,
+                    trueWpm: 0,
+                    wordCount: 0,
+                    avgPitch: 0,
+                    pitchRange: 0,
+                    avgVolume: 0,
+                    clarityScore: 0,
+                    mumbledWords: [],
+                    streamEpoch: 0,
                 }
-                pendingWords.current = [];
-            }
-        }
+            };
 
-        if (completedSentences.length > 0) {
-            queueMicrotask(() => {
-                setAnalyticsTraces(prev => [...prev, ...completedSentences]);
+            newAnalytics.push(analytics);
+            
+            // Add tags to preliminary list for UI display
+            setPreliminaryTags(prev => {
+                const updated = [...prev, ...tagBatch.tags];
+                return updated.slice(-6); // Keep last 6 tags
             });
+
+            console.log(
+                '%c[Gemini Live] 🏷️ Voice Tags injected:',
+                'color: #d946ef; font-weight: bold;',
+                tagBatch.tags.join(' | ')
+            );
         }
-    }, [wordBatches]);
 
-    return { analyticsTraces, preliminaryTags };
-}
-
-// ============================================================
-//  SENTENCE BUILDER
-// ============================================================
-
-/**
- * Maps each word to sensor buffer data and generates analytics for a sentence.
- */
-function buildSentenceAnalytics(
-    words: { word: WordData; epoch: number }[],
-    sensorBuffer: { volume: number; pitch: number; timestamp: number }[]
-): SentenceAnalytics | null {
-    if (words.length === 0) return null;
-
-    const epoch = words[0].epoch;
-    const transcript = words.map(w => w.word.word).join(' ');
-
-    // Map each word to its sensor data
-    const wordMetrics: WordMetrics[] = words.map(({ word }) => {
-        const wordStartMs = epoch + word.start * 1000;
-        const wordEndMs = epoch + word.end * 1000;
-
-        // Look up sensor buffer for this word's time window
-        const slice = sensorBuffer.filter(
-            m => m.timestamp >= wordStartMs && m.timestamp <= wordEndMs
-        );
-
-        const pitches = slice.filter(m => m.pitch > 60).map(m => m.pitch);
-        const volumes = slice.filter(m => m.volume > 0).map(m => m.volume);
-
-        return {
-            word: word.word,
-            confidence: word.confidence,
-            avgPitch: pitches.length > 0
-                ? Math.round(pitches.reduce((s, v) => s + v, 0) / pitches.length)
-                : 0,
-            avgVolume: volumes.length > 0
-                ? Math.round((volumes.reduce((s, v) => s + v, 0) / volumes.length) * 1000) / 1000
-                : 0,
-            start: word.start,
-            end: word.end,
-        };
-    });
-
-    // --- Aggregate metrics ---
-    const firstWord = words[0].word;
-    const lastWord = words[words.length - 1].word;
-    // Add 0.4s of padding to account for natural pauses between sentences.
-    // This prevents 4-word sentences from registering as 250+ WPM due to tight word boundaries.
-    const durationMinutes = (lastWord.end - firstWord.start + 0.4) / 60;
-    
-    // Require at least 4 words for a meaningful WPM, and cap at 250 to prevent anomalies
-    let trueWpm = 0;
-    if (words.length >= 4 && durationMinutes > 0) {
-        trueWpm = Math.min(Math.round(words.length / durationMinutes), 250);
-    }
-
-    const sentenceStartMs = epoch + firstWord.start * 1000;
-    const sentenceEndMs = epoch + lastWord.end * 1000;
-
-    // Get the full sensor slice for the sentence (for trend analysis)
-    const fullSlice = sensorBuffer.filter(
-        m => m.timestamp >= sentenceStartMs && m.timestamp <= sentenceEndMs
-    );
-
-    const validPitches = fullSlice.filter(m => m.pitch > 60).map(m => m.pitch);
-    const avgPitch = validPitches.length > 0
-        ? Math.round(validPitches.reduce((s, v) => s + v, 0) / validPitches.length) : 0;
-
-    const validVolumes = fullSlice.filter(m => m.volume > 0).map(m => m.volume);
-    const avgVolume = validVolumes.length > 0
-        ? Math.round((validVolumes.reduce((s, v) => s + v, 0) / validVolumes.length) * 1000) / 1000 : 0;
-
-    // Clarity
-    const totalConfidence = words.reduce((s, w) => s + w.word.confidence, 0);
-    const rawClarity = totalConfidence / words.length;
-    const mumbledWords = words
-        .filter(w => w.word.confidence < CLARITY_THRESHOLD)
-        .map(w => ({ word: w.word.word, confidence: w.word.confidence }));
-
-    const mumbleRatio = mumbledWords.length / words.length;
-    const clarityScore = mumbleRatio > MUMBLE_RATIO_THRESHOLD
-        ? Math.min(rawClarity * 0.5, 0.60)
-        : mumbledWords.length > 0
-            ? rawClarity * (1 - mumbleRatio * 2)
-            : rawClarity;
-
-    // --- Tag Generation ---
-    const tags: string[] = [];
-
-    // 1. Pitch inflection & range
-    const pitchTrend = calculatePitchTrend(fullSlice);
-    if (pitchTrend === 'downward') tags.push('Downward inflection');
-    if (pitchTrend === 'upward') tags.push('Upward inflection');
-
-    const pitchRange = calculatePitchRange(fullSlice);
-    if (pitchRange > 40) tags.push(`Dynamic Pitch (Range: ${pitchRange}Hz)`);
-    else if (pitchRange > 0 && pitchRange < 35) tags.push(`Monotone (Range: ${pitchRange}Hz)`);
-
-    // 2. Volume tags
-    tags.push(...calculateVolumeTags(fullSlice));
-
-    // 3. Pace (from Deepgram ground-truth WPM)
-    // Only tag pace on longer sentences (≥ 8 words). Short conversational bursts are inherently 
-    // fast and result in inflated WPM calculations that lead to false penalties.
-    if (words.length >= 8) {
-        if (trueWpm > 190) tags.push(`Pace is extremely fast (${trueWpm} WPM)`);
-        else if (trueWpm > 160) tags.push(`Pace is fast (${trueWpm} WPM)`);
-        else if (trueWpm > 120) tags.push(`Pace is medium (${trueWpm} WPM)`);
-        else if (trueWpm > 80) tags.push(`Pace is slow (${trueWpm} WPM)`);
-        else if (trueWpm > 0) tags.push(`Pace is very slow (${trueWpm} WPM)`);
-    }
-
-    // 4. Clarity
-    if (clarityScore < 0.70) {
-        tags.push(`Speech unclear (${Math.round(clarityScore * 100)}% clarity)`);
-    }
-    if (mumbledWords.length > 0) {
-        tags.push(`Mumbled: ${mumbledWords.map(w => `"${w.word}"`).join(', ')}`);
-    }
+        if (newAnalytics.length > 0) {
+            setAnalyticsTraces(prev => [...prev, ...newAnalytics]);
+        }
+    }, [liveTags]);
 
     return {
-        timestamp: sentenceStartMs,
-        transcript,
-        tags,
-        wordMetrics,
-        debug: {
-            sliceSampleCount: fullSlice.length,
-            trueWpm,
-            wordCount: words.length,
-            avgPitch,
-            pitchRange,
-            avgVolume,
-            clarityScore: Math.round(clarityScore * 100) / 100,
-            mumbledWords,
-            streamEpoch: epoch,
-        },
+        analyticsTraces,
+        preliminaryTags,
+        clearPreliminaryTags: () => setPreliminaryTags([]),
     };
 }

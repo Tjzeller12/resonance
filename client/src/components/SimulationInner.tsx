@@ -7,7 +7,7 @@ import { useStageDirector } from '../hooks/useStageDirector';
 import { useVoiceAnalyticsEngine } from '../hooks/useVoiceAnalyticsEngine';
 import AnalyticsDebugPanel from './AnalyticsDebugPanel';
 import Card from './common/Card';
-import EviConvoPanel from './eviConvoPanel';
+import EviConvoPanel from './EviConvoPanel';
 import PostMatchReport from './postmatch/PostMatchReport';
 import SensorMetricsPanel from './SensorMetricsPanel';
 import SimControlPanel from './SimControlPanel';
@@ -31,7 +31,7 @@ interface SimulationInnerProps {
  */
 const SimulationInner = ({ advanceStageRef }: SimulationInnerProps) => {
     // 1. Rust Audio/Physics Session
-    const { sensorMetrics, sessionStatus, isConnected, pitchHistory, wordBatches, startSession, endSession } = useSimulationSession();
+    const { sensorMetrics, sessionStatus, isConnected, pitchHistory, liveTags, startSession, endSession } = useSimulationSession();
     
     // 2. Hume EVI Session (Brain)
     const { startEviSession, stopEviSession, messages, activeConfig, status, sendSessionSettings } = useEviManager();
@@ -44,9 +44,9 @@ const SimulationInner = ({ advanceStageRef }: SimulationInnerProps) => {
     const scenarioId = searchParams.get('scenarioId') || '';
     const director = useStageDirector(scenarioId, sendSessionSettings as (settings: Record<string, unknown>) => void);
 
-    // 4. Voice Analytics Engine (Word-Level Sensor Fusion)
-    // Maps Deepgram word events to pitch/volume sensor data per-sentence.
-    const { analyticsTraces, preliminaryTags } = useVoiceAnalyticsEngine(messages, sensorMetrics, isStreaming, wordBatches);
+    // 4. Voice Analytics Engine
+    // Converts Gemini Live tag events + sensor data into per-sentence analytics.
+    const { analyticsTraces, preliminaryTags } = useVoiceAnalyticsEngine(sensorMetrics, isStreaming, liveTags);
 
     // 5. Conversation Data Compositor (Post-Match Analysis)
     // Accumulates all session data and handles the analysis submission flow.
@@ -68,35 +68,6 @@ const SimulationInner = ({ advanceStageRef }: SimulationInnerProps) => {
         pitchHistory,
         sensorMetrics?.volume ?? 0,
     );
-
-    // 6. WPM: Sourced from the latest finalized analytics trace (Deepgram ground-truth)
-    const latestTrace = analyticsTraces[analyticsTraces.length - 1];
-    const displayWpm = latestTrace?.debug?.trueWpm ?? 0;
-
-    /**
-     * SENSOR FUSION: Context Injection
-     * This is where the magic happens. The instant the user stops speaking, 
-     * `preliminaryTags` are generated (e.g., "Fast Pacing", "High Pitch Variance").
-     * 
-     * We immediately inject these tags into the AI's short-term memory (Context)
-     * so it can react to your delivery in its VERY NEXT sentence.
-     */
-    useEffect(() => {
-        if (preliminaryTags.length > 0) {
-            const telemetryPayload = `[SYSTEM TELEMETRY DATA FOR THE USER'S LAST MESSAGE - Tags: ${preliminaryTags.join(' | ')}]`;
-            try {
-                sendSessionSettings({
-                    context: {
-                        text: telemetryPayload,
-                        type: 'persistent'
-                    }
-                });
-                console.log('%c[Context Injection] ⚡ PRELIMINARY', 'color: #a855f7; font-weight: bold;', telemetryPayload);
-            } catch (e) {
-                console.warn('[Context Injection] Failed to send telemetry', e);
-            }
-        }
-    }, [preliminaryTags, sendSessionSettings]);
 
     /**
      * Component Communication:
@@ -185,8 +156,19 @@ const SimulationInner = ({ advanceStageRef }: SimulationInnerProps) => {
                     <EviConvoPanel messages={messages} imageUrl={activeConfig.image} />
                     
                     {/* HUD: Telemetry (Top Right Overlay) */}
-                    <div className="absolute top-4 right-4 w-64 z-20 pointer-events-none">
-                        <SensorMetricsPanel metrics={sensorMetrics} pitchHistory={pitchHistory} wpm={displayWpm} />
+                    <div className="absolute top-4 right-4 w-64 z-20 pointer-events-none flex flex-col gap-3">
+                        <SensorMetricsPanel metrics={sensorMetrics} pitchHistory={pitchHistory} />
+                        
+                        {preliminaryTags.length > 0 && (
+                            <div className="flex flex-col gap-1.5 items-end">
+                                <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest px-1 mb-0.5">Vocal Characteristics</div>
+                                {preliminaryTags.map((tag, i) => (
+                                    <div key={i} className="bg-black/60 backdrop-blur-md border border-emerald-500/30 text-emerald-300 text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-lg shadow-lg shadow-emerald-900/20 animate-in slide-in-from-right-4 fade-in duration-300">
+                                        {tag}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Stage Indicator: Shows what part of the "Interview" or "Scenario" you are in */}

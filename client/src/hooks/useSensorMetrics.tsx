@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { SENSOR_WS_URL } from "../config";
 
 /**
  * SensorMetrics represents the raw audio physics data processed by the Rust backend.
@@ -55,11 +56,20 @@ interface WordBatchMessage {
     data: WordBatch;
 }
 
+export interface LiveTags {
+    tags: string[];
+}
+
+interface LiveTagsMessage {
+    type: 'LiveTags';
+    data: LiveTags;
+}
+
 interface UnknownMessage {
     type: string;
 }
 
-type ServerMessage = AudioMetricsMessage | WordBatchMessage | UnknownMessage;
+type ServerMessage = AudioMetricsMessage | WordBatchMessage | LiveTagsMessage | UnknownMessage;
 
 /**
  * useSensorMetrics manages the "Sensor" half of the architecture.
@@ -82,14 +92,13 @@ export const useSensorMetrics = () => {
     const [isConnected, setIsConnected] = useState(false);
     const [pitchHistory, setPitchHistory] = useState<number[]>([]);
     const [wordBatches, setWordBatches] = useState<WordBatch[]>([]);
+    const [liveTags, setLiveTags] = useState<LiveTags[]>([]);
 
     // --- Refs: Used for persistent objects that don't need to trigger re-renders ---
     const ws: React.RefObject<WebSocket | null> = useRef<WebSocket | null>(null);              
     const audioContext: React.RefObject<AudioContext | null> = useRef<AudioContext | null>(null); 
     const mediaStream: React.RefObject<MediaStream | null>= useRef<MediaStream | null>(null);  
-    const workletNode = useRef<AudioWorkletNode | null>(null);                                  
-    
-    const WS_URL = 'ws://localhost:3000/ws';
+    const workletNode = useRef<AudioWorkletNode | null>(null);
 
     // Exponential Moving Average (EMA) for smoothing output pitch values
     const smoothedPitch = useRef<number>(0);
@@ -131,6 +140,10 @@ export const useSensorMetrics = () => {
             // Connect the graph: Microphone -> Processor (Captures PCM) -> Destination (Silent)
             source.connect(workletNode.current);
             workletNode.current.connect(audioContext.current.destination);
+
+            if (audioContext.current.state === 'suspended') {
+                await audioContext.current.resume();
+            }
 
             /**
              * The worklet sends us Float32 chunks. 
@@ -212,6 +225,10 @@ export const useSensorMetrics = () => {
                         console.log('%c[Sensor] 📝 Sentence complete', 'color: #06b6d4; font-weight: bold;',
                             `"${batch.transcript}"`);
                     }
+                } else if (msg.type === 'LiveTags') {
+                    const tagsData = (msg as LiveTagsMessage).data;
+                    setLiveTags(prev => [...prev, tagsData]);
+                    console.log('%c[Gemini Live] 🏷️ Received tags', 'color: #a855f7; font-weight: bold;', tagsData.tags);
                 }
             } catch (err) {
                 console.error("[Sensor] JSON Parse Error", err);
@@ -227,7 +244,7 @@ export const useSensorMetrics = () => {
 
         try {
             console.log('[Sensor] Connecting to WebSocket...');
-            ws.current = new WebSocket(WS_URL);
+            ws.current = new WebSocket(SENSOR_WS_URL);
             ws.current.binaryType = 'arraybuffer';
 
             ws.current.onopen = () => {
@@ -281,6 +298,7 @@ export const useSensorMetrics = () => {
         sensorMetrics,
         pitchHistory,
         wordBatches,
+        liveTags,
         startStreaming,
         stopStreaming,
         connect,

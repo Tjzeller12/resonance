@@ -8,6 +8,8 @@ import type {
     StageProgressionEntry,
 } from '../types/conversationAnalysis';
 import { toServerAnalytics } from '../types/conversationAnalysis';
+import { ANALYZE_URL } from '../config';
+import { getScenarioMode } from '../data/scenarios';
 
 // ============================================================
 //  TYPES
@@ -30,12 +32,6 @@ interface HumeMessageLike {
     };
     receivedAt?: Date;
 }
-
-// ============================================================
-//  CONFIG
-// ============================================================
-
-const ANALYZE_URL = 'http://localhost:3000/api/analyze';
 
 // ============================================================
 //  HOOK
@@ -203,7 +199,7 @@ export function useConversationData(
                 : 0;
 
         // Determine mode from scenario
-        const mode = inferMode(scenarioId);
+        const mode = getScenarioMode(scenarioId);
 
         // Close any open stage
         const timeline = [...stageTimeline.current];
@@ -347,30 +343,4 @@ export function useConversationData(
         // Session metadata (for PostMatchReport)
         sessionDurationMs,
     };
-}
-
-// ============================================================
-//  HELPERS
-// ============================================================
-
-/**
- * Infers the session mode from the scenario ID.
- * Training scenarios → 'training' or 'dojo', simulations → 'evi_sim'.
- */
-function inferMode(scenarioId: string): 'evi_sim' | 'training' | 'dojo' {
-    const dojoScenarios = [
-        'downward_inflection_technique_training',
-        'pitch_variance_training',
-        'pace_and_volume_variance_training',
-        'playground_training',
-    ];
-    const trainingScenarios = [
-        'star_interview_training',
-        'speaking_intelligence_training',
-        'masculine_frame_training',
-    ];
-
-    if (dojoScenarios.includes(scenarioId)) return 'dojo';
-    if (trainingScenarios.includes(scenarioId)) return 'training';
-    return 'evi_sim';
 }

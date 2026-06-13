@@ -2,117 +2,54 @@ import { useVoice } from '@humeai/voice-react';
 import type { Hume } from 'hume';
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-
-/**
- * SIM_CONFIGS serves as a mapping between scenario identifiers and their 
- * specific visual/AI configurations.
- * 
- * - image: The background scene shown on the HUD.
- * - configId: The Hume EVI Config UUID that dictates the AI's core instructions and tools.
- */
-const SIM_CONFIGS: Record<string, { image: string; configId?: string }> = {
-    downward_inflection_technique_training: {
-        image: '/resources/sim_env_imgs/dojo.png',
-        configId: "b055deb3-a413-4543-83d7-09f30c71b2a6", 
-    },
-    pitch_variance_training: {
-        image: '/resources/sim_env_imgs/dojo.png',
-        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
-    },
-    pace_and_volume_variance_training: {
-        image: '/resources/sim_env_imgs/dojo.png',
-        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
-    },
-    speaking_intelligence_training: {
-        image: '/resources/sim_env_imgs/dojo.png',
-        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
-    },
-    star_interview_training: {
-        image: '/resources/sim_env_imgs/interview_training.png',
-        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
-    },
-    tech_interview: {
-        image: '/resources/sim_env_imgs/interview_at_tech.png',
-        configId: "d7f0c27e-7425-4764-96f4-fc24453fbd30", 
-    },
-    finance_interview: {
-        image: '/resources/sim_env_imgs/finance_interview.png',
-        configId: "d7f0c27e-7425-4764-96f4-fc24453fbd30", 
-    },
-    masculine_frame_training: {
-        image: '/resources/sim_env_imgs/dating_training.png',
-        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
-    },
-    playground_training: {
-        image: '/resources/sim_env_imgs/dojo.png',
-        configId: "53a940d4-f863-4d84-af96-f45dc26b7e78", 
-    },
-    bar: {
-        image: '/resources/sim_env_imgs/pickup_at_bar.png',
-        configId: "2af8f2e3-3e4d-4337-9fb6-78408dc07dbb", 
-    },
-    park: {
-        image: '/resources/sim_env_imgs/park_date.png',
-        configId: "2af8f2e3-3e4d-4337-9fb6-78408dc07dbb", 
-    },
-    dinner: {
-        image: '/resources/sim_env_imgs/high_end_dinner_date.png',
-        configId: "2af8f2e3-3e4d-4337-9fb6-78408dc07dbb", 
-    },
-};
+import { DEFAULT_SCENARIO_ID, getScenarioConfig, withAdvanceStageInstruction } from '../data/scenarios';
+import { clearContext, loadContext, loadCustomBackground, loadStages } from '../utils/sessionStore';
 
 /**
  * useEviManager is the primary orchestrator for the Hume Empathic Voice Interface (EVI).
- * 
+ *
  * It handles:
  * 1. Selecting the correct AI configuration based on the URL's scenarioId.
  * 2. Compiling and injecting "Appearance Context" (e.g., how the AI/User looks).
  * 3. Initializing the session with 'staged' simulation data if available.
  * 4. Configuring global tools like 'advance_stage'.
- * 
+ *
  * @returns An object containing session controls, status, and message history.
  */
 export const useEviManager = () => {
     // voice-react provides the underlying WebSocket connection and audio handling
-    const { 
-        connect, 
-        disconnect, 
-        status, 
-        messages, 
-        isMuted, 
-        mute, 
-        unmute, 
-        pauseAssistant, 
-        resumeAssistant, 
-        isPlaying, 
-        isPaused, 
-        sendSessionSettings 
+    const {
+        connect,
+        disconnect,
+        status,
+        messages,
+        isMuted,
+        mute,
+        unmute,
+        pauseAssistant,
+        resumeAssistant,
+        isPlaying,
+        isPaused,
+        sendSessionSettings
     } = useVoice();
-    
+
     // Determine the scenario from the URL (e.g. ?scenarioId=tech_interview)
     const [searchParams] = useSearchParams();
-    const scenarioId = searchParams.get('scenarioId') || 'downward_inflection_technique_training';
-    
+    const scenarioId = searchParams.get('scenarioId') || DEFAULT_SCENARIO_ID;
+
     // Resolve which config we should use
-    const baseConfig: { image: string , configId?: string } = (scenarioId in SIM_CONFIGS) 
-        ? SIM_CONFIGS[scenarioId] 
-        : SIM_CONFIGS.downward_inflection_technique_training;
-        
+    const baseConfig = getScenarioConfig(scenarioId);
+
     // Optionally use a custom image if the pre-flight check set one in sessionStorage
-    const customBgImg = sessionStorage.getItem(`staged_simulation_bg_${scenarioId}`);
-    
+    const customBgImg = loadCustomBackground(scenarioId);
+
     const activeConfig = {
         ...baseConfig,
         image: customBgImg || baseConfig.image
     };
 
     // Load appearance/persona context injected by the user in the "Pre-flight" screens
-    const contextRaw = typeof window !== 'undefined' 
-        ? sessionStorage.getItem(`context_${scenarioId}`) 
-        : null;
-    const contextData: Record<string, string> | null = contextRaw 
-        ? (JSON.parse(contextRaw) as Record<string, string>) 
-        : null;
+    const contextData = loadContext(scenarioId);
 
     /**
      * Converts raw key-value pair context data into a human-readable prompt
@@ -139,10 +76,10 @@ export const useEviManager = () => {
 
     /**
      * startEviSession initializes the WebSocket connection to Hume.
-     * 
-     * It dynamically constructs 'SessionSettings' which can override the 
+     *
+     * It dynamically constructs 'SessionSettings' which can override the
      * default instructions for the given configId. This allows us to have
-     * generic configs (like 'Interview') that behave differently based on the 
+     * generic configs (like 'Interview') that behave differently based on the
      * precise scenario (e.g. 'Software Engineer' vs 'Accountant').
      */
     const startEviSession = useCallback(async () => {
@@ -151,16 +88,11 @@ export const useEviManager = () => {
             const contextText = contextData ? buildContextString(contextData) : null;
 
             // Check if there's a staged simulation (a list of prompts/stages) to follow
-            const stagedRaw = typeof window !== 'undefined'
-                ? sessionStorage.getItem(`stages_${scenarioId}`)
-                : null;
-            interface StagedData { stages: Array<{ prompt: string; title: string }> }
-            const stagedData = stagedRaw ? (JSON.parse(stagedRaw) as StagedData) : null;
-            const initialStagePrompt = stagedData?.stages?.[0]?.prompt ?? null;
+            const initialStagePrompt = loadStages(scenarioId)?.stages[0]?.prompt ?? null;
 
             console.log('[EVI] Starting session...', {
                 scenarioId,
-                configId: activeConfig.configId,
+                configId: activeConfig.humeConfigId,
                 hasContext: !!contextText,
                 hasStages: !!initialStagePrompt,
             });
@@ -207,8 +139,7 @@ export const useEviManager = () => {
             // Priority: If we have stages (Interview mode), override the system prompt for stage 1.
             // Otherwise, if we have appearance context, inject it as persistent context.
             if (initialStagePrompt) {
-                const promptWithTool = `${initialStagePrompt}\n\nIMPORTANT: Once the requirements for this stage are complete, use the 'advance_stage' tool call to move on to the next stage.`;
-                sessionSettings.systemPrompt = promptWithTool;
+                sessionSettings.systemPrompt = withAdvanceStageInstruction(initialStagePrompt);
                 console.log(`[EVI] Staged mode: stage 1 prompt initialized.`);
             } else if (contextText) {
                 sessionSettings.context = {
@@ -222,7 +153,7 @@ export const useEviManager = () => {
             // ESTABLISH CONNECTION
             await connect({
                 auth: { type: 'apiKey', value: apiKey },
-                ...(activeConfig.configId ? { configId: activeConfig.configId } : {}),
+                ...(activeConfig.humeConfigId ? { configId: activeConfig.humeConfigId } : {}),
                 ...(hasSessionSettings ? { sessionSettings: sessionSettings as Hume.empathicVoice.SessionSettings } : {}),
             });
 
@@ -244,12 +175,12 @@ export const useEviManager = () => {
 
             // Clean up to prevent stale data in future re-connections
             if (contextData) {
-                sessionStorage.removeItem(`context_${scenarioId}`);
+                clearContext(scenarioId);
             }
         } catch (err) {
             console.error('Failed to connect to Hume EVI', err);
         }
-    }, [connect, activeConfig.configId, contextData, scenarioId, sendSessionSettings]);
+    }, [connect, activeConfig.humeConfigId, contextData, scenarioId, sendSessionSettings]);
 
     /**
      * Gracefully ends the AI connection

@@ -1,5 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
-import type { SimulationStage, CompiledSimulation } from '../types/stagedSimulation';
+import type { SimulationStage } from '../types/stagedSimulation';
+import { withAdvanceStageInstruction } from '../data/scenarios';
+import { loadStages } from '../utils/sessionStore';
 
 /**
  * useStageDirector is the "Script Manager" for multi-part simulations.
@@ -26,21 +28,12 @@ export const useStageDirector = (
      * by the `usePreFlightCompiler` during the screen preceding the simulation.
      */
     const initialData = useMemo(() => {
-        const raw = typeof window !== 'undefined'
-            ? sessionStorage.getItem(`stages_${scenarioId}`)
-            : null;
-        if (!raw) return null;
-        try {
-            const compiled = JSON.parse(raw) as CompiledSimulation;
-            if (compiled.stages.length > 0) {
-                console.log(`[Director] Loaded ${compiled.stages.length} stages:`,
-                    compiled.stages.map(s => s.title));
-                return compiled;
-            }
-        } catch (e) {
-            console.error('[Director] Failed to parse staged data:', e);
+        const compiled = loadStages(scenarioId);
+        if (compiled) {
+            console.log(`[Director] Loaded ${compiled.stages.length} stages:`,
+                compiled.stages.map(s => s.title));
         }
-        return null;
+        return compiled;
     }, [scenarioId]);
 
     // Internal state to track progress through the script
@@ -91,13 +84,11 @@ export const useStageDirector = (
         const nextStage = stages[nextIndex];
         console.log(`[Director] Advancing to stage ${nextIndex + 1}/${totalStages}: "${nextStage.title}"`);
 
-        // We re-append the tool instruction to ensure EVI remembers it can advance.
-        const promptWithTool = `${nextStage.prompt}\n\nIMPORTANT: Once the requirements for this stage are complete, use the 'advance_stage' tool call to move on to the next stage.`;
-
         // UPDATE THE AI IN-REAL-TIME
+        // (re-append the tool instruction so EVI remembers it can advance)
         sendSessionSettings({
             type: 'session_settings',
-            systemPrompt: promptWithTool,
+            systemPrompt: withAdvanceStageInstruction(nextStage.prompt),
             ...(nextStage.context ? {
                 context: {
                     text: nextStage.context,

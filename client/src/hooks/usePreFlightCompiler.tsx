@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { CompileResponse, CompiledSimulation } from '../types/stagedSimulation';
-
-const COMPILE_ENDPOINT = 'http://localhost:3000/api/compile';
+import { COMPILE_URL } from '../config';
+import { saveStages } from '../utils/sessionStore';
 
 /**
  * usePreFlightCompiler acts as the bridge to the Resonance "Compiler" engine.
@@ -39,7 +39,7 @@ export const usePreFlightCompiler = () => {
 
         try {
             // Send the compilation request to the local Rust binary
-            const response = await fetch(COMPILE_ENDPOINT, {
+            const response = await fetch(COMPILE_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -72,13 +72,10 @@ export const usePreFlightCompiler = () => {
                 }
             }
 
-            // Persistence: We store the compiled script in sessionStorage so that 
-            // when the user navigates from "Pre-flight" to "Simulation", 
+            // Persistence: We store the compiled script in sessionStorage so that
+            // when the user navigates from "Pre-flight" to "Simulation",
             // the `useEviManager` hook can pick it up.
-            sessionStorage.setItem(
-                `stages_${scenarioId}`,
-                JSON.stringify(data.data),
-            );
+            saveStages(scenarioId, data.data);
 
             setResult(data.data);
             return data.data;

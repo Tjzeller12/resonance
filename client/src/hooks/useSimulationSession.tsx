@@ -24,7 +24,7 @@ export const useSimulationSession = () => {
         sensorMetrics, 
         pitchHistory, 
         isConnected,
-        wordBatches,
+        liveTags,
         startStreaming, 
         stopStreaming, 
         connect, 
@@ -79,7 +79,7 @@ export const useSimulationSession = () => {
         isConnected, 
         sensorMetrics, 
         pitchHistory,
-        wordBatches,
+        liveTags,
         startSession, 
         endSession
     }

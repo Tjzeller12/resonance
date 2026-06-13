@@ -1,9 +1,10 @@
-use axum::{extract::Json, http::StatusCode, response::IntoResponse};
+use axum::{extract::Json, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::info;
 
-use crate::gemini::{GeminiClient, GeminiError};
+use crate::api::ApiResponse;
+use crate::gemini::{models, GeminiClient, GeminiError};
 
 // ─── Request / Response types ───────────────────────────────────────────────
 
@@ -33,15 +34,6 @@ pub struct CompiledSimulation {
     pub stages: Vec<SimulationStage>,
 }
 
-#[derive(Serialize)]
-pub struct CompileResponse {
-    pub success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<CompiledSimulation>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 pub async fn compile_handler(Json(payload): Json<CompileRequest>) -> impl IntoResponse {
@@ -63,7 +55,7 @@ pub async fn compile_handler(Json(payload): Json<CompileRequest>) -> impl IntoRe
     // Use the unified Gemini client
     let result: Result<CompiledSimulation, GeminiError> = async {
         GeminiClient::builder()
-            .model("gemini-3.5-flash")
+            .model(models::FLASH)
             .temperature(0.3)
             .json_response()
             .build_rest()?
@@ -79,33 +71,8 @@ pub async fn compile_handler(Json(payload): Json<CompileRequest>) -> impl IntoRe
                 compiled.stages.len(),
                 &compiled.summary[..compiled.summary.len().min(100)]
             );
-
-            (
-                StatusCode::OK,
-                Json(CompileResponse {
-                    success: true,
-                    data: Some(compiled),
-                    error: None,
-                }),
-            )
+            ApiResponse::ok(compiled)
         }
-        Err(e) => {
-            let status = match &e {
-                GeminiError::ApiKeyMissing => StatusCode::INTERNAL_SERVER_ERROR,
-                GeminiError::RequestFailed(_) => StatusCode::BAD_GATEWAY,
-                GeminiError::ApiError { .. } => StatusCode::BAD_GATEWAY,
-                GeminiError::InvalidResponse(_) => StatusCode::INTERNAL_SERVER_ERROR,
-                GeminiError::ParseError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-
-            (
-                status,
-                Json(CompileResponse {
-                    success: false,
-                    data: None,
-                    error: Some(e.to_string()),
-                }),
-            )
-        }
+        Err(e) => ApiResponse::from_gemini_error(&e),
     }
 }

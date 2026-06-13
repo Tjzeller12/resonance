@@ -1,8 +1,9 @@
-use axum::{extract::Json, http::StatusCode, response::IntoResponse};
+use axum::{extract::Json, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use crate::gemini::{GeminiClient, GeminiError};
+use crate::api::ApiResponse;
+use crate::gemini::{models, GeminiClient};
 use crate::rubrics;
 
 // ─── Request Types ──────────────────────────────────────────────────────────
@@ -187,16 +188,6 @@ pub struct SuggestedTraining {
     pub reason: String,
 }
 
-/// Wrapper response for the analyze endpoint.
-#[derive(Serialize)]
-pub struct AnalyzeResponse {
-    pub success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<AnalysisResult>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
 // ─── Handler ────────────────────────────────────────────────────────────────
 
 pub async fn analyze_handler(Json(payload): Json<AnalyzeRequest>) -> impl IntoResponse {
@@ -224,7 +215,7 @@ pub async fn analyze_handler(Json(payload): Json<AnalyzeRequest>) -> impl IntoRe
     // 3. Call Gemini
     let result = async {
         GeminiClient::builder()
-            .model("gemini-2.5-pro")
+            .model(models::PRO)
             .temperature(0.4)
             .json_response()
             .system_instruction(ANALYSIS_SYSTEM_INSTRUCTION)
@@ -241,32 +232,11 @@ pub async fn analyze_handler(Json(payload): Json<AnalyzeRequest>) -> impl IntoRe
                 analysis.total_xp,
                 analysis.highlights.len()
             );
-            (
-                StatusCode::OK,
-                Json(AnalyzeResponse {
-                    success: true,
-                    data: Some(analysis),
-                    error: None,
-                }),
-            )
+            ApiResponse::ok(analysis)
         }
         Err(e) => {
             warn!("[Analyzer] ❌ Analysis failed: {}", e);
-            let status = match &e {
-                GeminiError::ApiKeyMissing => StatusCode::INTERNAL_SERVER_ERROR,
-                GeminiError::RequestFailed(_) => StatusCode::BAD_GATEWAY,
-                GeminiError::ApiError { .. } => StatusCode::BAD_GATEWAY,
-                GeminiError::InvalidResponse(_) => StatusCode::INTERNAL_SERVER_ERROR,
-                GeminiError::ParseError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-            (
-                status,
-                Json(AnalyzeResponse {
-                    success: false,
-                    data: None,
-                    error: Some(e.to_string()),
-                }),
-            )
+            ApiResponse::from_gemini_error(&e)
         }
     }
 }
@@ -365,6 +335,13 @@ fn build_analysis_prompt(
             .join("\n")
     };
 
+    // Build the valid training module list from the single source of truth
+    let modules_section = rubrics::TRAINING_MODULES
+        .iter()
+        .map(|(id, name)| format!("- \"{}\": {}", id, name))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     let duration_s = (payload.ended_at - payload.started_at) / 1000;
 
     format!(
@@ -392,13 +369,7 @@ Total Duration: {}ms
 
 === AVAILABLE TRAINING MODULES ===
 When recommending training, you MUST choose from the following valid module_ids:
-- "downward_inflection_technique_training": Downward Inflection Training
-- "pitch_variance_training": Pitch Variance Training
-- "pace_and_volume_variance_training": Pace & Volume Training
-- "speaking_intelligence_training": Speaking Intelligence
-- "star_interview_training": STAR Method Training
-- "masculine_frame_training": Masculine Frame Training
-- "playground_training": Playground
+{}
 
 === OUTPUT FORMAT ===
 Return a JSON object with this exact structure:
@@ -426,5 +397,6 @@ Return a JSON object with this exact structure:
         payload.sensor_summary.avg_volume,
         payload.sensor_summary.total_duration_ms,
         conversation_section,
+        modules_section,
     )
 }

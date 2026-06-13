@@ -1,8 +1,30 @@
 import type { AssistantTranscriptMessage, JSONMessage, UserTranscriptMessage } from '@humeai/voice-react';
 import { useMemo } from 'react';
 
+/**
+ * Loosely-typed fallback shape for Hume payloads whose transcript/prosody
+ * fields vary across SDK versions.
+ */
+interface LooseHumeMessage {
+    type: string;
+    message?: { content?: string };
+    transcript?: string;
+    text?: string;
+    models?: {
+        prosody?: {
+            scores?: Record<string, number> | { name: string; score: number }[];
+        };
+    };
+}
+
+type ConvoMessage =
+    | JSONMessage
+    | UserTranscriptMessage
+    | AssistantTranscriptMessage
+    | LooseHumeMessage;
+
 interface EviConvoPanelProps {
-    messages: (JSONMessage | UserTranscriptMessage | AssistantTranscriptMessage | { type: string; message?: { content?: string }; transcript?: string; text?: string; models?: { prosody?: { scores?: Record<string, number> | { name: string; score: number }[] } } })[];
+    messages: ConvoMessage[];
     imageUrl: string;
 }
 
@@ -56,6 +78,7 @@ export default function EviConvoPanel({ messages, imageUrl }: EviConvoPanelProps
             {/* Emotion Overlay (Top Left) */}
             {topEmotions.length > 0 && (
                 <div className="absolute top-4 left-4 flex flex-col gap-2 z-10">
+                    <div className="text-[10px] font-bold text-white/80 uppercase tracking-widest px-1">Prosody Scores</div>
                     {topEmotions.map(emotion => (
                         <div key={emotion.name} className="bg-black/70 backdrop-blur-md px-3 py-1.5 rounded-full text-xs font-bold text-white border border-white/10 flex items-center justify-between gap-3 min-w-[120px] shadow-lg">
                             <span>{emotion.name}</span>

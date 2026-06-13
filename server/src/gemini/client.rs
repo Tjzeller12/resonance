@@ -62,6 +62,7 @@ pub struct GeminiClientBuilder {
     tools: Option<Vec<Value>>,
     json_response: bool,
     response_modalities: Option<Vec<String>>,
+    voice_name: Option<String>,
 }
 
 impl Default for GeminiClientBuilder {
@@ -73,6 +74,7 @@ impl Default for GeminiClientBuilder {
             tools: None,
             json_response: false,
             response_modalities: None,
+            voice_name: None,
         }
     }
 }
@@ -114,6 +116,12 @@ impl GeminiClientBuilder {
         self
     }
 
+    /// Set the specific voice for Gemini Live (e.g. "Aoede", "Puck").
+    pub fn voice_name(mut self, name: &str) -> Self {
+        self.voice_name = Some(name.to_string());
+        self
+    }
+
     /// Build a REST client for one-shot generateContent calls.
     pub fn build_rest(self) -> Result<GeminiRestClient, GeminiError> {
         let api_key = std::env::var("GEMINI_API_KEY")
@@ -122,12 +130,18 @@ impl GeminiClientBuilder {
             GeminiError::InvalidResponse("Model name is required".to_string())
         })?;
 
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Ok(GeminiRestClient {
             api_key,
             model,
             temperature: self.temperature,
             system_instruction: self.system_instruction,
             json_response: self.json_response,
+            http,
         })
     }
 
@@ -144,8 +158,8 @@ impl GeminiClientBuilder {
             model,
             system_instruction: self.system_instruction,
             tools: self.tools,
-            response_modalities: self.response_modalities
-                .unwrap_or_else(|| vec!["audio".to_string()]),
+            response_modalities: self.response_modalities.unwrap_or_else(|| vec!["text".to_string()]),
+            voice_name: self.voice_name,
         })
     }
 }
@@ -159,6 +173,7 @@ pub struct GeminiRestClient {
     temperature: f32,
     system_instruction: Option<String>,
     json_response: bool,
+    http: reqwest::Client,
 }
 
 impl GeminiRestClient {
@@ -235,11 +250,8 @@ impl GeminiRestClient {
             prompt.len()
         );
 
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
-        let response = client
+        let response = self
+            .http
             .post(&url)
             .json(&request)
             .send()
@@ -292,6 +304,7 @@ pub struct GeminiLiveClient {
     system_instruction: Option<String>,
     tools: Option<Vec<Value>>,
     response_modalities: Vec<String>,
+    voice_name: Option<String>,
 }
 
 impl GeminiLiveClient {
@@ -314,6 +327,27 @@ impl GeminiLiveClient {
             .await
             .map_err(|e| GeminiError::RequestFailed(format!("Failed to send setup: {}", e)))?;
 
+        // Wait for setupComplete response
+        use futures::StreamExt;
+        if let Some(msg) = ws_stream.next().await {
+            match msg {
+                Ok(Message::Text(text)) => {
+                    tracing::info!("[Gemini Live] Setup response: {}", text);
+                    // Check if it's an error
+                    if text.contains("\"error\"") {
+                        return Err(GeminiError::RequestFailed(format!("Setup error: {}", text)));
+                    }
+                }
+                Ok(Message::Close(cf)) => {
+                    return Err(GeminiError::RequestFailed(format!("Socket closed during setup: {:?}", cf)));
+                }
+                Err(e) => {
+                    return Err(GeminiError::RequestFailed(format!("Error reading setup response: {}", e)));
+                }
+                _ => {}
+            }
+        }
+
         Ok(ws_stream)
     }
 
@@ -329,6 +363,26 @@ impl GeminiLiveClient {
                 },
             }
         });
+
+        if let Some(ref voice_name) = self.voice_name {
+            if let Some(gen_config) = setup_json
+                .get_mut("setup")
+                .and_then(|s| s.as_object_mut())
+                .and_then(|s| s.get_mut("generationConfig"))
+                .and_then(|g| g.as_object_mut())
+            {
+                gen_config.insert(
+                    "speechConfig".to_string(),
+                    json!({
+                        "voiceConfig": {
+                            "prebuiltVoiceConfig": {
+                                "voiceName": voice_name
+                            }
+                        }
+                    }),
+                );
+            }
+        }
 
         // Inject system instruction
         if let Some(ref instruction) = self.system_instruction {
@@ -357,6 +411,8 @@ impl GeminiLiveClient {
                 );
             }
         }
+
+
 
         setup_json.to_string()
     }
@@ -394,34 +450,61 @@ pub fn parse_live_event(gemini_response: &str) -> Option<GeminiEvent> {
             }
         }
     }
+
+    if let Some(calls) = json_response.pointer("/toolCall/functionCalls") {
+        if let Some(calls_array) = calls.as_array() {
+            if let Some(first_call) = calls_array.first() {
+                if first_call["name"].as_str() == Some("submit_tags") {
+                    if let Some(tags) = first_call.get("args").and_then(|a| a.get("tags")) {
+                        return Some(GeminiEvent::Text(tags.to_string()));
+                    }
+                }
+            }
+        }
+    }
+
     None
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-/// Cleans Gemini's output by removing markdown code block wrappers and trimming whitespace.
-/// Gemini sometimes wraps JSON in ```json ... ``` blocks even when asked for raw JSON.
+/// Cleans Gemini's output so it can be parsed as JSON:
+/// 1. Strips markdown code fences (```json ... ```).
+/// 2. Escapes literal control characters inside string values.
+/// 3. Repairs output truncated mid-document (e.g. by MAX_TOKENS).
 fn preprocess_json(raw: &str) -> String {
-    let trimmed = raw.trim();
-    let mut content = trimmed.to_string();
+    let content = strip_code_fences(raw.trim());
+    let sanitized = escape_control_chars_in_strings(&content);
+    repair_truncated_json(sanitized)
+}
 
-    if trimmed.starts_with("```") {
-        let lines: Vec<&str> = trimmed.lines().collect();
-        if lines.len() >= 2 {
-            let end_idx = if lines
-                .last()
-                .map(|l| l.trim().starts_with("```"))
-                .unwrap_or(false)
-            {
-                lines.len() - 1
-            } else {
-                lines.len()
-            };
-            content = lines[1..end_idx].join("\n").trim().to_string();
-        }
+/// Removes a wrapping markdown code block. Gemini sometimes emits
+/// ```json ... ``` even when asked for raw JSON.
+fn strip_code_fences(trimmed: &str) -> String {
+    if !trimmed.starts_with("```") {
+        return trimmed.to_string();
     }
 
-    // Escape literal newlines and tabs INSIDE json strings to prevent serde "control character" errors
+    let lines: Vec<&str> = trimmed.lines().collect();
+    if lines.len() < 2 {
+        return trimmed.to_string();
+    }
+
+    let end_idx = if lines
+        .last()
+        .map(|l| l.trim().starts_with("```"))
+        .unwrap_or(false)
+    {
+        lines.len() - 1
+    } else {
+        lines.len()
+    };
+    lines[1..end_idx].join("\n").trim().to_string()
+}
+
+/// Escapes literal newlines/tabs INSIDE json strings to prevent serde
+/// "control character" errors.
+fn escape_control_chars_in_strings(content: &str) -> String {
     let mut sanitized = String::with_capacity(content.len());
     let mut in_string = false;
     let mut escaped = false;
@@ -431,28 +514,26 @@ fn preprocess_json(raw: &str) -> String {
             in_string = !in_string;
             sanitized.push(c);
         } else if in_string {
-            if c == '\n' {
-                sanitized.push_str("\\n");
-            } else if c == '\t' {
-                sanitized.push_str("\\t");
-            } else if c == '\r' {
-                sanitized.push_str("\\r");
-            } else {
-                sanitized.push(c);
+            match c {
+                '\n' => sanitized.push_str("\\n"),
+                '\t' => sanitized.push_str("\\t"),
+                '\r' => sanitized.push_str("\\r"),
+                _ => sanitized.push(c),
             }
-            // Update escaped state
-            if c == '\\' {
-                escaped = !escaped;
-            } else {
-                escaped = false;
-            }
+            escaped = if c == '\\' { !escaped } else { false };
         } else {
             sanitized.push(c);
             escaped = false;
         }
     }
 
-    // --- JSON AUTO-REPAIR FOR INCOMPLETE OUTPUT ---
+    sanitized
+}
+
+/// Best-effort repair for JSON cut off mid-document: closes an unterminated
+/// string, drops a trailing comma, completes a dangling `key:`, and closes
+/// any unbalanced brackets.
+fn repair_truncated_json(mut sanitized: String) -> String {
     let mut in_str = false;
     let mut is_escaped = false;
     let mut bracket_stack = Vec::new();
@@ -482,8 +563,6 @@ fn preprocess_json(raw: &str) -> String {
         sanitized = trimmed_end[..trimmed_end.len() - 1].to_string();
     } else if trimmed_end.ends_with(':') {
         sanitized.push_str("null");
-    } else if !trimmed_end.ends_with('}') && !trimmed_end.ends_with(']') && !trimmed_end.ends_with('"') && !trimmed_end.ends_with("true") && !trimmed_end.ends_with("false") && !trimmed_end.ends_with("null") {
-        // if it ends with partial unquoted text like a number, it's usually fine
     }
 
     while let Some(c) = bracket_stack.pop() {

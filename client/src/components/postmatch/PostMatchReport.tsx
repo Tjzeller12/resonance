@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { AnalysisResult } from '../../types/conversationAnalysis';
+import { getScenarioDisplayName } from '../../data/scenarios';
 import ScoreBar from './ScoreBar';
 import HighlightCard from './HighlightCard';
 import TrainingCard from './TrainingCard';
@@ -11,22 +12,6 @@ interface PostMatchReportProps {
     sessionDurationMs: number;
     onTryAgain: () => void;
 }
-
-/** Maps scenario IDs to human-readable names */
-const SCENARIO_NAMES: Record<string, string> = {
-    tech_interview: 'Tech Interview',
-    finance_interview: 'Finance Interview',
-    bar: 'Dive Bar Date',
-    park: 'Park Walk Date',
-    dinner: 'Restaurant Date',
-    downward_inflection_technique_training: 'Downward Inflection Training',
-    pitch_variance_training: 'Pitch Variance Training',
-    pace_and_volume_variance_training: 'Pace & Volume Training',
-    speaking_intelligence_training: 'Speaking Intelligence',
-    star_interview_training: 'STAR Method Training',
-    masculine_frame_training: 'Masculine Frame Training',
-    playground_training: 'Playground',
-};
 
 /**
  * PostMatchReport — The premium post-session review dashboard.
@@ -44,7 +29,7 @@ export default function PostMatchReport({
     const navigate = useNavigate();
     const [displayXp, setDisplayXp] = useState(0);
 
-    const scenarioName = SCENARIO_NAMES[scenarioId] || scenarioId;
+    const scenarioName = getScenarioDisplayName(scenarioId);
     const durationMin = Math.floor(sessionDurationMs / 60000);
     const durationSec = Math.floor((sessionDurationMs % 60000) / 1000);
 

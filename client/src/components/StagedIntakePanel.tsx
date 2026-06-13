@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { usePreFlightCompiler } from '../hooks/usePreFlightCompiler';
 import type { StagedIntakeConfig, SimulationStage } from '../types/stagedSimulation';
 import { INTERVIEW_PERSONALITIES } from '../data/homeConfigs';
+import { saveCustomBackground, saveStages } from '../utils/sessionStore';
 import { Eye, EyeOff, ChevronUp, ChevronDown } from 'lucide-react';
 
 interface StagedIntakePanelProps {
@@ -74,11 +75,8 @@ export default function StagedIntakePanel({
                     : stage.prompt
             }));
 
-            // Store the injected version to sessionStorage (overwriting the raw version from usePreFlightCompiler)
-            sessionStorage.setItem(`stages_${scenarioId}`, JSON.stringify({
-                ...result,
-                stages: injectedStages
-            }));
+            // Store the injected version (overwriting the raw version from usePreFlightCompiler)
+            saveStages(scenarioId, { ...result, stages: injectedStages });
 
             setCompiledStages(injectedStages);
             setCompiledSummary(result.summary);
@@ -108,22 +106,19 @@ export default function StagedIntakePanel({
 
     const handleLaunch = () => {
         if (values.environment) {
-            sessionStorage.setItem(`staged_simulation_bg_${scenarioId}`, values.environment);
+            saveCustomBackground(scenarioId, values.environment);
         }
 
         // Filter out disabled stages before starting
         const activeStages = compiledStages.filter(s => !s.disabled);
-        
+
         if (activeStages.length === 0) {
             alert("Please enable at least one stage to start.");
             return;
         }
 
         // Final sync of ONLY active stages to sessionStorage
-        sessionStorage.setItem(`stages_${scenarioId}`, JSON.stringify({
-            summary: compiledSummary,
-            stages: activeStages
-        }));
+        saveStages(scenarioId, { summary: compiledSummary, stages: activeStages });
 
         onLaunch();
     };

@@ -47,6 +47,24 @@ pub struct Thresholds {
     pub needs_work: u32,
 }
 
+// ─── Training Modules ───────────────────────────────────────────────────────
+
+/// All training modules the post-match analyzer may recommend, as
+/// `(module_id, display_name)` pairs. This is the single source of truth for
+/// valid `suggested_training.module_id` values in analysis prompts.
+pub const TRAINING_MODULES: &[(&str, &str)] = &[
+    (
+        "downward_inflection_technique_training",
+        "Downward Inflection Training",
+    ),
+    ("pitch_variance_training", "Pitch Variance Training"),
+    ("pace_and_volume_variance_training", "Pace & Volume Training"),
+    ("speaking_intelligence_training", "Speaking Intelligence"),
+    ("star_interview_training", "STAR Method Training"),
+    ("masculine_frame_training", "Masculine Frame Training"),
+    ("playground_training", "Playground"),
+];
+
 // ─── Rubric Lookup ──────────────────────────────────────────────────────────
 
 /// Look up the appropriate rubric for a given scenario and mode.

@@ -24,12 +24,20 @@
 //!     .await?;
 //! ```
 
+/// Model identifiers used across the app. Centralized so a model upgrade
+/// is a one-line change instead of a grep across handlers.
+pub mod models {
+    /// Fast model for pre-flight compilation of simulation stages.
+    pub const FLASH: &str = "gemini-3.5-flash";
+    /// High-quality model for post-match conversation analysis.
+    pub const PRO: &str = "gemini-2.5-pro";
+    /// Live (WebSocket) model for real-time vocal tagging.
+    pub const FLASH_LIVE: &str = "gemini-3.1-flash-live-preview";
+}
+
 mod client;
 mod types;
 
 // Re-export the public API
-pub use client::{
-    GeminiClient, GeminiClientBuilder, GeminiLiveClient, GeminiRestClient, GeminiStream,
-    parse_live_event,
-};
+pub use client::{parse_live_event, GeminiClient, GeminiLiveClient, GeminiStream};
 pub use types::{GeminiError, GeminiEvent};
